@@ -144,7 +144,6 @@ fun IosAlarmItemRow(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 优化：分两行优雅展示【声音信息】与【亮屏信息】
             // 第一行：声音状态与自动停止时长
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isSoundEnabled) {
@@ -185,7 +184,7 @@ fun IosAlarmItemRow(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // 第二行：亮屏闪烁状态与模板
+            // 第二行：亮屏状态（特性 2: 仅显示模板名字，不再显示长长的时间间隔）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isFlashEnabled) {
                     Icon(
@@ -196,7 +195,7 @@ fun IosAlarmItemRow(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "亮屏：${profile.name} (亮${profile.onDurationMs}ms/暗${profile.offDurationMs}ms)",
+                        text = "亮屏：${profile.name}",
                         fontSize = 12.sp,
                         color = if (alarm.isEnabled) IosTextSecondary else IosTextTertiary
                     )
@@ -212,6 +211,15 @@ fun IosAlarmItemRow(
                         text = "亮屏：未开启",
                         fontSize = 12.sp,
                         color = IosTextTertiary
+                    )
+                }
+
+                if (alarm.isIntervalRepeatEnabled) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "· 间隔${alarm.intervalRepeatMinutes}分重响${alarm.intervalRepeatTimes}次",
+                        fontSize = 12.sp,
+                        color = IosOrange
                     )
                 }
             }

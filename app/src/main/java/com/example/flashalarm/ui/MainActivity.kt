@@ -11,6 +11,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -31,17 +32,18 @@ import com.example.flashalarm.ui.screens.AlarmListScreen
 import com.example.flashalarm.ui.screens.FlashProfileManageDialog
 import com.example.flashalarm.ui.theme.FlashAlarmTheme
 import com.example.flashalarm.ui.theme.IosBackground
+import com.example.flashalarm.util.AlarmAudioHelper
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmRepo: AlarmRepository
     private lateinit var profileRepo: FlashProfileRepository
 
-    // 当前选中的自定义音频状态
+    private var currentEditingAlarmId: Long = System.currentTimeMillis()
     private var selectedAudioUriState by mutableStateOf<String?>(null)
     private var selectedAudioTitleState by mutableStateOf("默认闹钟铃声")
 
-    // 系统铃声与本地音乐选择器回调
+    // 系统铃声与本地音乐选择器回调 (特性 4: 将音频深拷贝至应用私有目录，彻底杜绝权限丢失变回默认铃声)
     private val ringtonePickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -55,17 +57,20 @@ class MainActivity : ComponentActivity() {
                 if (uri != null) {
                     val ringtone = RingtoneManager.getRingtone(this, uri)
                     val title = try {
-                        ringtone.getTitle(this) ?: "已选音频"
+                        ringtone.getTitle(this) ?: "已选音乐"
                     } catch (e: Exception) {
-                        "已选音频"
+                        "已选音乐"
                     }
-                    selectedAudioUriState = uri.toString()
+
+                    // 拷贝音频至应用内部存储，获得终身直接读取权限
+                    val localPath = AlarmAudioHelper.saveAudioToInternalStorage(this, uri, currentEditingAlarmId)
+                    selectedAudioUriState = localPath ?: uri.toString()
                     selectedAudioTitleState = title
+                    Toast.makeText(this, "已锁定音频: $title", Toast.LENGTH_SHORT).show()
                 }
             }
         }
 
-    // 通知权限申请回调
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (!isGranted) {
@@ -109,17 +114,20 @@ class MainActivity : ComponentActivity() {
                         },
                         onDeleteAlarm = { alarm ->
                             AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
+                            AlarmAudioHelper.deleteInternalAudio(this@MainActivity, alarm.id)
                             alarmRepo.deleteAlarm(alarm.id)
                             alarms = alarmRepo.getAllAlarms()
                         },
                         onEditAlarm = { alarm ->
                             editingAlarm = alarm
+                            currentEditingAlarmId = alarm.id
                             selectedAudioUriState = alarm.ringtoneUri
                             selectedAudioTitleState = alarm.ringtoneTitle
                             isEditDialogOpen = true
                         },
                         onAddNewAlarm = {
                             editingAlarm = null
+                            currentEditingAlarmId = System.currentTimeMillis()
                             selectedAudioUriState = null
                             selectedAudioTitleState = "默认闹钟铃声"
                             isEditDialogOpen = true
@@ -185,9 +193,6 @@ class MainActivity : ComponentActivity() {
                 putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                 putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
                 putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择闹钟音频或本地音乐")
-                selectedAudioUriState?.let {
-                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(it))
-                }
             }
             ringtonePickerLauncher.launch(intent)
         } catch (e: Exception) {
@@ -196,7 +201,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 跑 1 个循环的亮屏单周期测试（特性 5：体验亮屏与渐黑效果，点击屏幕任意处立即退出）
+     * 跑 1 个循环的亮屏单周期测试
      */
     private fun runProfileSingleCycleTest(profile: FlashProfile) {
         val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
@@ -209,13 +214,17 @@ class MainActivity : ComponentActivity() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 1) // 仅跑 1 个循环
+            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 1)
             putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 20)
         }
         startActivity(alertIntent)
     }
 
+    /**
+     * 特性 5: 请求防后台杀进程权限 (忽略电池优化)，确保到点 100% 必响
+     */
     private fun checkAndRequestPermissions() {
+        // 1. 通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -224,6 +233,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 2. 精确闹钟权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             if (!alarmManager.canScheduleExactAlarms()) {
@@ -238,6 +248,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 3. 全屏意图权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (!notificationManager.canUseFullScreenIntent()) {
@@ -249,6 +260,19 @@ class MainActivity : ComponentActivity() {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+            }
+        }
+
+        // 4. 特性 5: 忽略电池优化白名单 (防止在使用其他应用时后台被杀)
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

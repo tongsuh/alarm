@@ -29,10 +29,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * 闹钟触发时全屏视觉与声音唤醒 Activity
- * 支持：声音/亮屏独立控制、自定义音频、平滑渐黑过渡、任意点击退出
+ * 解决需求：持续规律闪烁与声音同步对齐、平滑渐黑、长效音频播放无权限丢失
  */
 class AlarmAlertActivity : AppCompatActivity() {
 
@@ -51,21 +52,20 @@ class AlarmAlertActivity : AppCompatActivity() {
         const val EXTRA_IS_PREVIEW_MODE = "EXTRA_IS_PREVIEW_MODE"
     }
 
-    // 参数配置
     private var alarmId: Long = -1L
     private var alarmLabel: String = "闹钟"
     private var isSoundEnabled: Boolean = true
     private var isFlashEnabled: Boolean = true
     private var isPreviewMode: Boolean = false
     private var ringtoneUriStr: String? = null
-    private var targetColor: Int = Color.parseColor("#FF1A00") // 默认 Apple Watch 夜间深红
+    private var targetColor: Int = Color.parseColor("#FF1A00")
     private var targetBrightness: Float = 0.85f
     private var onDurationMs: Long = 1500L
     private var offDurationMs: Long = 1000L
     private var totalDurationCircle: Int = 15
     private var autoDismissSec: Int = 60
+    private var effectiveTotalDurationSec: Int = 60
 
-    // 控件与任务
     private lateinit var rootContainer: FrameLayout
     private lateinit var tvLabel: TextView
     private lateinit var tvTime: TextView
@@ -86,22 +86,21 @@ class AlarmAlertActivity : AppCompatActivity() {
         buildViewHierarchy()
         hideSystemUI()
 
-        // 1. 声音控制：勾选声音且非纯闪烁预览才播放
+        // 1. 声音控制
         if (isSoundEnabled && !isPreviewMode) {
             startAudio()
             startVibration()
         }
 
-        // 2. 亮屏控制：勾选亮屏才触发循环闪烁
+        // 2. 亮屏控制：整个响铃生命周期内全程持续规律闪烁，绝不会中途停闪常亮
         if (isFlashEnabled) {
-            startFlashingLoop()
+            startContinuousFlashingLoop()
         } else {
-            // 纯声音模式：全黑静止背景，不闪烁
             rootContainer.setBackgroundColor(Color.BLACK)
             infoPanel.visibility = View.VISIBLE
         }
 
-        // 3. 自动停止倒计时
+        // 3. 自动停止倒计时 (以音频与闪烁两者的最大时长为准)
         startAutoDismissTimer()
     }
 
@@ -142,6 +141,23 @@ class AlarmAlertActivity : AppCompatActivity() {
         offDurationMs = intent.getLongExtra(EXTRA_OFF_DURATION_MS, 1000L).coerceAtLeast(100L)
         totalDurationCircle = intent.getIntExtra(EXTRA_TOTAL_DURATION_CIRCLE, 15)
         autoDismissSec = intent.getIntExtra(EXTRA_AUTO_DISMISS_SEC, 60)
+
+        // 关键改动 (特性 1): 计算有效总时长，以闪烁总时长和音频自动停止时长中较长的一个为准
+        val flashCycleTotalSec = if (totalDurationCircle > 0) {
+            ((totalDurationCircle * (onDurationMs + offDurationMs)) / 1000L).toInt()
+        } else {
+            autoDismissSec
+        }
+
+        effectiveTotalDurationSec = if (isPreviewMode) {
+            ((onDurationMs + offDurationMs + 500L) / 1000L).toInt().coerceAtLeast(3)
+        } else if (isSoundEnabled && isFlashEnabled) {
+            maxOf(autoDismissSec, flashCycleTotalSec)
+        } else if (isFlashEnabled) {
+            maxOf(autoDismissSec, flashCycleTotalSec)
+        } else {
+            autoDismissSec
+        }
     }
 
     private fun buildViewHierarchy() {
@@ -180,7 +196,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvAutoDismiss = TextView(this).apply {
-            text = if (autoDismissSec > 0 && !isPreviewMode) "将在 ${autoDismissSec} 秒后自动停止" else ""
+            text = if (effectiveTotalDurationSec > 0 && !isPreviewMode) "将在 ${effectiveTotalDurationSec} 秒后自动停止" else ""
             textSize = 15f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -212,54 +228,44 @@ class AlarmAlertActivity : AppCompatActivity() {
     }
 
     /**
-     * 协程动态切换背光与夜视色彩，支持平滑【渐黑过渡】
+     * 全程持续规律闪烁协程（特性 1: 不会在音频未结束前中途停闪常亮，全程循环闪烁到底）
      */
-    private fun startFlashingLoop() {
+    private fun startContinuousFlashingLoop() {
         flashJob = lifecycleScope.launch {
             var cycle = 0
-            val isInfinite = totalDurationCircle <= 0
+            val maxCycles = if (isPreviewMode) 1 else Int.MAX_VALUE
 
-            while (isActive && (isInfinite || cycle < totalDurationCircle)) {
+            while (isActive && cycle < maxCycles) {
                 cycle++
 
-                // ====== 1. 亮状态 ======
+                // ====== 亮状态 ======
                 applyScreenState(
                     color = targetColor,
                     brightness = targetBrightness,
                     contentAlpha = 1f
                 )
-                // 维持设定的亮时长
                 delay(onDurationMs)
 
                 if (!isActive) break
 
-                // ====== 2. 渐黑过渡 (Smooth Fade to Black) ======
-                // 避免突然暴暗刺眼，采用 450ms 呼吸渐隐曲线淡入纯黑
+                // ====== 渐黑过渡 ======
                 val transitionDuration = 450L.coerceAtMost(onDurationMs / 2).coerceAtLeast(150L)
                 smoothFadeToBlack(durationMs = transitionDuration)
 
                 if (!isActive) break
 
-                // ====== 3. 灭状态 (纯黑保持) ======
-                // 维持设定的灭时长
+                // ====== 灭状态保持 ======
                 delay(offDurationMs)
             }
 
-            // 循环结束后
-            if (isActive) {
-                if (isPreviewMode) {
-                    // 预览跑完 1 周期自动关闭
-                    dismissAlarm("测试完成退出")
-                } else {
-                    applyScreenState(color = targetColor, brightness = targetBrightness, contentAlpha = 1f)
-                    tvHint.text = "轻触屏幕任意位置关闭"
-                }
+            if (isActive && isPreviewMode) {
+                dismissAlarm("预览结束")
             }
         }
     }
 
     /**
-     * 平滑渐黑过渡函数：颜色插值淡入纯黑，背光从目标亮度渐变至 0.01f
+     * 平滑渐黑
      */
     private suspend fun smoothFadeToBlack(durationMs: Long) {
         val steps = 18
@@ -274,7 +280,6 @@ class AlarmAlertActivity : AppCompatActivity() {
         for (i in 1..steps) {
             if (!lifecycleScope.coroutineContext.isActive) break
             val fraction = i.toFloat() / steps
-            // 缓动曲线平滑淡出 (Ease-out)
             val factor = 1f - (fraction * fraction)
 
             val currentR = (r * factor).toInt().coerceIn(0, 255)
@@ -291,7 +296,6 @@ class AlarmAlertActivity : AppCompatActivity() {
             delay(stepInterval)
         }
 
-        // 最终锁定为纯黑与最低背光
         applyScreenState(Color.BLACK, endBrightness, contentAlpha = 0f)
     }
 
@@ -307,25 +311,44 @@ class AlarmAlertActivity : AppCompatActivity() {
     }
 
     private fun startAutoDismissTimer() {
-        if (autoDismissSec <= 0 || isPreviewMode) return
+        if (effectiveTotalDurationSec <= 0) return
         autoDismissJob = lifecycleScope.launch {
-            var remain = autoDismissSec
+            var remain = effectiveTotalDurationSec
             while (isActive && remain > 0) {
                 delay(1000L)
                 remain--
                 tvAutoDismiss.text = "将在 ${remain} 秒后自动停止"
             }
             if (isActive) {
-                dismissAlarm("超时自动关闭")
+                dismissAlarm("倒计时结束自动关闭")
             }
         }
     }
 
     /**
-     * 播放自定义或系统音频
+     * 播放自定义或系统音频 (特性 4: 优先读取内部存储私有持久化音乐文件，彻底杜绝权限丢失)
      */
     private fun startAudio() {
         try {
+            if (!ringtoneUriStr.isNullOrBlank()) {
+                val internalFile = File(ringtoneUriStr!!)
+                if (internalFile.exists() && internalFile.length() > 0) {
+                    mediaPlayer = MediaPlayer().apply {
+                        setDataSource(internalFile.absolutePath)
+                        setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
+                    return
+                }
+            }
+
             val audioUri = if (!ringtoneUriStr.isNullOrBlank()) {
                 Uri.parse(ringtoneUriStr)
             } else {

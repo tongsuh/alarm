@@ -13,7 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -76,7 +76,12 @@ fun AlarmEditDialog(
     var autoDismissMinutes by remember { mutableStateOf((initialTotalSec / 60).toString()) }
     var autoDismissSeconds by remember { mutableStateOf((initialTotalSec % 60).toString()) }
 
-    // 选中的模板 ID (修复问题 4: 保证可直接勾选切换)
+    // 特性 3：间隔重响功能 (如间隔30分钟，重复2次)
+    var isIntervalRepeatEnabled by remember { mutableStateOf(initialAlarm?.isIntervalRepeatEnabled ?: false) }
+    var intervalRepeatMinutes by remember { mutableStateOf((initialAlarm?.intervalRepeatMinutes ?: 30).toString()) }
+    var intervalRepeatTimes by remember { mutableStateOf((initialAlarm?.intervalRepeatTimes ?: 2).toString()) }
+
+    // 选中的模板 ID
     var selectedProfileId by remember {
         mutableStateOf(initialAlarm?.flashProfileId ?: profiles.firstOrNull()?.id ?: FlashProfile.PRESET_APPLE_WATCH_RED.id)
     }
@@ -99,7 +104,7 @@ fun AlarmEditDialog(
                     .fillMaxSize()
                     .systemBarsPadding()
             ) {
-                // 仿 iOS 模态顶部导航条
+                // 顶部导航条
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -129,6 +134,9 @@ fun AlarmEditDialog(
                             val secs = autoDismissSeconds.toIntOrNull() ?: 0
                             val totalSec = (mins * 60 + secs).coerceAtLeast(5)
 
+                            val repeatIntervalMins = intervalRepeatMinutes.toIntOrNull() ?: 30
+                            val repeatTimes = intervalRepeatTimes.toIntOrNull() ?: 2
+
                             val finalAlarm = AlarmItem(
                                 id = initialAlarm?.id ?: System.currentTimeMillis(),
                                 hour = hour,
@@ -141,7 +149,11 @@ fun AlarmEditDialog(
                                 ringtoneUri = ringtoneUri,
                                 ringtoneTitle = ringtoneTitle,
                                 autoDismissSec = totalSec,
-                                flashProfileId = selectedProfileId
+                                flashProfileId = selectedProfileId,
+                                isIntervalRepeatEnabled = isIntervalRepeatEnabled,
+                                intervalRepeatMinutes = repeatIntervalMins.coerceAtLeast(1),
+                                intervalRepeatTimes = repeatTimes.coerceAtLeast(1),
+                                currentIntervalIndex = 0
                             )
                             onSave(finalAlarm)
                         }
@@ -167,7 +179,7 @@ fun AlarmEditDialog(
                         }
                     )
 
-                    // 2. 标签输入与重复分组卡片
+                    // 2. 标签与周期
                     IosGroupCard {
                         // 标签行
                         Row(
@@ -195,7 +207,7 @@ fun AlarmEditDialog(
 
                         IosDivider()
 
-                        // 重复周期多选
+                        // 重复周期
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("重复", color = IosTextPrimary, fontSize = 17.sp)
                             Spacer(modifier = Modifier.height(10.dp))
@@ -227,7 +239,95 @@ fun AlarmEditDialog(
                         }
                     }
 
-                    // 3. 声音设置 (独立开关 + 自定义音频选择)
+                    // 3. 特性 3：间隔重复功能 (例如隔30分钟，重复2次)
+                    IosGroupCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Repeat, contentDescription = null, tint = IosOrange)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("间隔重响", color = IosTextPrimary, fontSize = 17.sp)
+                                    Text("初次响铃后，定时再次提醒", color = IosTextSecondary, fontSize = 13.sp)
+                                }
+                            }
+                            Switch(
+                                checked = isIntervalRepeatEnabled,
+                                onCheckedChange = { isIntervalRepeatEnabled = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = IosTextPrimary,
+                                    checkedTrackColor = IosOrange
+                                )
+                            )
+                        }
+
+                        if (isIntervalRepeatEnabled) {
+                            IosDivider()
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = intervalRepeatMinutes,
+                                            onValueChange = { intervalRepeatMinutes = it.filter { c -> c.isDigit() } },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = IosTextPrimary,
+                                                unfocusedTextColor = IosTextPrimary,
+                                                focusedContainerColor = IosCardSurfaceVariant,
+                                                unfocusedContainerColor = IosCardSurfaceVariant
+                                            ),
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("分钟后", color = IosTextPrimary)
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = intervalRepeatTimes,
+                                            onValueChange = { intervalRepeatTimes = it.filter { c -> c.isDigit() } },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = IosTextPrimary,
+                                                unfocusedTextColor = IosTextPrimary,
+                                                focusedContainerColor = IosCardSurfaceVariant,
+                                                unfocusedContainerColor = IosCardSurfaceVariant
+                                            ),
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("次重响", color = IosTextPrimary)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "例如：首次响铃后，每隔 ${intervalRepeatMinutes.ifBlank { "0" }} 分钟重响 1 次，共再响 ${intervalRepeatTimes.ifBlank { "0" }} 次",
+                                    color = IosOrange,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // 4. 声音设置
                     IosGroupCard {
                         Row(
                             modifier = Modifier
@@ -278,7 +378,7 @@ fun AlarmEditDialog(
                         }
                     }
 
-                    // 4. 亮屏闪烁设置 (独立开关 + 解决问题4：直接选择模板列表)
+                    // 5. 亮屏闪烁设置 (直接选择模板列表)
                     IosGroupCard {
                         Row(
                             modifier = Modifier
@@ -307,7 +407,6 @@ fun AlarmEditDialog(
 
                         if (isFlashEnabled) {
                             IosDivider()
-                            // 列出所有可选模板，点击直接选择生效
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -371,7 +470,7 @@ fun AlarmEditDialog(
                         }
                     }
 
-                    // 5. 自由设置自动停止时长
+                    // 6. 自由设置自动停止时长
                     IosGroupCard {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("未操作自动停止时长", color = IosTextPrimary, fontSize = 17.sp)

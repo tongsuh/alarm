@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.example.flashalarm.model.AlarmItem
 import com.example.flashalarm.receiver.AlarmReceiver
 import com.example.flashalarm.ui.MainActivity
@@ -13,15 +12,13 @@ import java.util.Calendar
 object AlarmScheduler {
 
     /**
-     * 注册闹钟到 AlarmManager
+     * 注册闹钟到系统的 AlarmManager (使用 setAlarmClock 保证穿透 Doze 深度睡眠)
      */
     fun scheduleAlarm(context: Context, alarm: AlarmItem) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        // 计算下次触发时间
         val triggerTime = calculateNextTriggerMillis(alarm)
 
-        // 1. 点击系统状态栏的闹钟图标时触发的 PendingIntent (打开主页面)
         val showIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("EXTRA_ALARM_ID", alarm.id)
@@ -33,7 +30,6 @@ object AlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 2. 闹钟到点触发时接收广播的 PendingIntent
         val broadcastIntent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("EXTRA_ALARM_ID", alarm.id)
         }
@@ -44,7 +40,39 @@ object AlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 3. 构造 AlarmClockInfo 并使用 setAlarmClock 精准唤醒系统
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, broadcastPendingIntent)
+    }
+
+    /**
+     * 调度下一次间隔重响 (例如 30 分钟后再次响铃)
+     */
+    fun scheduleIntervalRepeat(context: Context, alarm: AlarmItem, delayMinutes: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val triggerTime = System.currentTimeMillis() + (delayMinutes * 60 * 1000L)
+
+        val showIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("EXTRA_ALARM_ID", alarm.id)
+        }
+        val showPendingIntent = PendingIntent.getActivity(
+            context,
+            alarm.id.toInt(),
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val broadcastIntent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("EXTRA_ALARM_ID", alarm.id)
+            putExtra("EXTRA_IS_INTERVAL_REPEAT", true)
+        }
+        val broadcastPendingIntent = PendingIntent.getBroadcast(
+            context,
+            alarm.id.toInt(),
+            broadcastIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
         alarmManager.setAlarmClock(alarmClockInfo, broadcastPendingIntent)
     }
@@ -68,7 +96,7 @@ object AlarmScheduler {
     }
 
     /**
-     * 计算下一个触发时间的毫秒戳
+     * 计算下次触发时间的毫秒戳
      */
     fun calculateNextTriggerMillis(alarm: AlarmItem): Long {
         val now = Calendar.getInstance()
@@ -79,16 +107,15 @@ object AlarmScheduler {
             set(Calendar.MILLISECOND, 0)
         }
 
-        // 若没有重复日配置（单次响铃）
+        // 单次响铃
         if (alarm.repeatDays.isEmpty()) {
             if (target.timeInMillis <= now.timeInMillis) {
-                target.add(Calendar.DAY_OF_YEAR, 1) // 顺延到明天
+                target.add(Calendar.DAY_OF_YEAR, 1)
             }
             return target.timeInMillis
         }
 
-        // 若有重复星期配置 (1:周一 ~ 7:周日)
-        // Calendar 中: 周日=1, 周一=2, 周二=3, ..., 周六=7
+        // 重复星期
         for (dayOffset in 0..7) {
             val candidate = Calendar.getInstance().apply {
                 timeInMillis = target.timeInMillis
