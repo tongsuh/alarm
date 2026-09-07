@@ -126,9 +126,6 @@ class MainActivity : ComponentActivity() {
                         },
                         onOpenProfileManager = {
                             isProfileDialogOpen = true
-                        },
-                        onQuickTest = {
-                            runQuick5SecondTest(profiles.firstOrNull() ?: FlashProfile.PRESET_APPLE_WATCH_RED)
                         }
                     )
 
@@ -167,6 +164,9 @@ class MainActivity : ComponentActivity() {
                                 profileRepo.deleteProfile(profileId)
                                 profiles = profileRepo.getAllProfiles()
                             },
+                            onTestProfile = { profile ->
+                                runProfileSingleCycleTest(profile)
+                            },
                             onDismiss = { isProfileDialogOpen = false }
                         )
                     }
@@ -196,47 +196,23 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 5秒快速测试闹钟（方便立即锁屏验证夜视深红与声音效果）
+     * 跑 1 个循环的亮屏单周期测试（特性 5：体验亮屏与渐黑效果，点击屏幕任意处立即退出）
      */
-    private fun runQuick5SecondTest(profile: FlashProfile) {
-        val testAlarm = AlarmItem(
-            id = 999999L,
-            hour = 0,
-            minute = 0,
-            label = "5秒快速测试",
-            isEnabled = true,
-            repeatDays = emptySet(),
-            isSoundEnabled = true,
-            isFlashEnabled = true,
-            ringtoneUri = null,
-            ringtoneTitle = "系统默认铃声",
-            autoDismissSec = 30,
-            flashProfileId = profile.id
-        )
-        alarmRepo.saveAlarm(testAlarm)
-
-        val triggerAt = System.currentTimeMillis() + 5000L
-
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val showIntent = Intent(this, MainActivity::class.java)
-        val showPendingIntent = android.app.PendingIntent.getActivity(
-            this, 999999, showIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val alertIntent = Intent(this, com.example.flashalarm.receiver.AlarmReceiver::class.java).apply {
-            putExtra("EXTRA_ALARM_ID", 999999L)
+    private fun runProfileSingleCycleTest(profile: FlashProfile) {
+        val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
+            putExtra(AlarmAlertActivity.EXTRA_ALARM_ID, 888888L)
+            putExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL, "效果测试")
+            putExtra(AlarmAlertActivity.EXTRA_IS_SOUND_ENABLED, false)
+            putExtra(AlarmAlertActivity.EXTRA_IS_FLASH_ENABLED, true)
+            putExtra(AlarmAlertActivity.EXTRA_IS_PREVIEW_MODE, true)
+            putExtra(AlarmAlertActivity.EXTRA_TARGET_COLOR_HEX, profile.targetColorHex)
+            putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
+            putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
+            putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
+            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 1) // 仅跑 1 个循环
+            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 20)
         }
-        val broadcastPendingIntent = android.app.PendingIntent.getBroadcast(
-            this, 999999, alertIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-
-        alarmManager.setAlarmClock(
-            AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent),
-            broadcastPendingIntent
-        )
-
-        Toast.makeText(this, "已设定测试闹钟，请在 5 秒内锁屏测试！", Toast.LENGTH_LONG).show()
+        startActivity(alertIntent)
     }
 
     private fun checkAndRequestPermissions() {

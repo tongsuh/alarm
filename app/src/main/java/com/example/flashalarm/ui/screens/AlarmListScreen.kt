@@ -1,16 +1,16 @@
 package com.example.flashalarm.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,8 +31,7 @@ fun AlarmListScreen(
     onDeleteAlarm: (AlarmItem) -> Unit,
     onEditAlarm: (AlarmItem) -> Unit,
     onAddNewAlarm: () -> Unit,
-    onOpenProfileManager: () -> Unit,
-    onQuickTest: () -> Unit
+    onOpenProfileManager: () -> Unit
 ) {
     Scaffold(
         containerColor = IosBackground,
@@ -53,17 +52,13 @@ fun AlarmListScreen(
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 快速测试按钮
-                    IconButton(onClick = onQuickTest) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "快速测试5秒后闹钟", tint = IosOrange)
-                    }
-                    // 模板管理
+                    // 模板设置入口
                     IconButton(onClick = onOpenProfileManager) {
-                        Icon(Icons.Default.Settings, contentDescription = "闪烁模板设置", tint = IosOrange)
+                        Icon(Icons.Default.Palette, contentDescription = "闪烁模板设置", tint = IosOrange)
                     }
-                    // 新建闹钟
+                    // 新建闹钟按钮
                     IconButton(onClick = onAddNewAlarm) {
-                        Icon(Icons.Default.Add, contentDescription = "添加闹钟", tint = IosOrange, modifier = Modifier.size(30.dp))
+                        Icon(Icons.Default.Add, contentDescription = "添加闹钟", tint = IosOrange, modifier = Modifier.size(32.dp))
                     }
                 }
             }
@@ -132,7 +127,7 @@ fun IosAlarmItemRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // iOS 风格超大时间
+            // iOS 风格超大时间显示
             Text(
                 text = alarm.formattedTime,
                 fontSize = 56.sp,
@@ -147,32 +142,78 @@ fun IosAlarmItemRow(
                 color = if (alarm.isEnabled) IosTextPrimary else IosTextSecondary
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // 状态徽标 (声音、亮屏模式、自动关闭时长)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            // 优化：分两行优雅展示【声音信息】与【亮屏信息】
+            // 第一行：声音状态与自动停止时长
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isSoundEnabled) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = IosOrange, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(alarm.ringtoneTitle, fontSize = 12.sp, color = IosTextSecondary, maxLines = 1)
-                    }
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = if (alarm.isEnabled) IosOrange else IosTextTertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "声音：${alarm.ringtoneTitle}",
+                        fontSize = 12.sp,
+                        color = if (alarm.isEnabled) IosTextSecondary else IosTextTertiary,
+                        maxLines = 1
+                    )
                 } else {
-                    Text("[静音]", fontSize = 12.sp, color = IosTextTertiary)
+                    Icon(
+                        Icons.Default.MusicOff,
+                        contentDescription = null,
+                        tint = IosTextTertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "声音：已静音",
+                        fontSize = 12.sp,
+                        color = IosTextTertiary
+                    )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "· ${alarm.autoDismissSummary}",
+                    fontSize = 12.sp,
+                    color = IosTextTertiary
+                )
+            }
 
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // 第二行：亮屏闪烁状态与模板
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isFlashEnabled) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.FlashOn, contentDescription = null, tint = IosOrange, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(profile.name, fontSize = 12.sp, color = IosTextSecondary)
-                    }
+                    Icon(
+                        Icons.Default.FlashOn,
+                        contentDescription = null,
+                        tint = if (alarm.isEnabled) IosOrange else IosTextTertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "亮屏：${profile.name} (亮${profile.onDurationMs}ms/暗${profile.offDurationMs}ms)",
+                        fontSize = 12.sp,
+                        color = if (alarm.isEnabled) IosTextSecondary else IosTextTertiary
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.FlashOff,
+                        contentDescription = null,
+                        tint = IosTextTertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "亮屏：未开启",
+                        fontSize = 12.sp,
+                        color = IosTextTertiary
+                    )
                 }
-
-                Text("· ${alarm.autoDismissSummary}", fontSize = 12.sp, color = IosTextTertiary)
             }
         }
 

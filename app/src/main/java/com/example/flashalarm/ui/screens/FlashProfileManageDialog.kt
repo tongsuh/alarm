@@ -6,12 +6,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,11 +35,14 @@ fun FlashProfileManageDialog(
     profiles: List<FlashProfile>,
     onSaveProfile: (FlashProfile) -> Unit,
     onDeleteProfile: (String) -> Unit,
+    onTestProfile: (FlashProfile) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var isCreatingNew by remember { mutableStateOf(false) }
+    // 是否处于编辑/新建状态
+    var isFormOpen by remember { mutableStateOf(false) }
+    var editingProfileId by remember { mutableStateOf<String?>(null) }
 
-    // 表单状态（默认选中 Apple Watch 夜间深红 #FF1A00）
+    // 表单状态
     var name by remember { mutableStateOf("") }
     var colorHex by remember { mutableStateOf("#FF1A00") }
     var brightness by remember { mutableStateOf(0.85f) }
@@ -44,7 +50,6 @@ fun FlashProfileManageDialog(
     var offDurationMs by remember { mutableStateOf("1000") }
     var totalCycles by remember { mutableStateOf("15") }
 
-    // 经典预设色彩列表（包含 Apple Watch 夜视深红、暖阳橙、琥珀黄、冷白等）
     val presetColors = listOf(
         "#FF1A00" to "AppleWatch夜视红",
         "#FFA726" to "暖阳橙",
@@ -53,6 +58,40 @@ fun FlashProfileManageDialog(
         "#76FF03" to "荧光绿",
         "#E040FB" to "柔光紫"
     )
+
+    fun startCreateNew() {
+        editingProfileId = null
+        name = "自定义模板 ${profiles.size + 1}"
+        colorHex = "#FF1A00"
+        brightness = 0.85f
+        onDurationMs = "1500"
+        offDurationMs = "1000"
+        totalCycles = "15"
+        isFormOpen = true
+    }
+
+    fun startEdit(profile: FlashProfile) {
+        editingProfileId = profile.id
+        name = profile.name
+        colorHex = profile.targetColorHex
+        brightness = profile.targetBrightness
+        onDurationMs = profile.onDurationMs.toString()
+        offDurationMs = profile.offDurationMs.toString()
+        totalCycles = profile.totalDurationCircle.toString()
+        isFormOpen = true
+    }
+
+    fun getCurrentFormProfile(): FlashProfile {
+        return FlashProfile(
+            id = editingProfileId ?: UUID.randomUUID().toString(),
+            name = name.ifBlank { "亮屏模板" },
+            targetColorHex = colorHex,
+            targetBrightness = brightness,
+            onDurationMs = onDurationMs.toLongOrNull() ?: 1500L,
+            offDurationMs = offDurationMs.toLongOrNull() ?: 1000L,
+            totalDurationCircle = totalCycles.toIntOrNull() ?: 15
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -77,37 +116,28 @@ fun FlashProfileManageDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isCreatingNew) "取消" else "关闭",
+                        text = if (isFormOpen) "取消" else "完成",
                         color = IosOrange,
                         fontSize = 17.sp,
                         modifier = Modifier.clickable {
-                            if (isCreatingNew) isCreatingNew = false else onDismiss()
+                            if (isFormOpen) isFormOpen = false else onDismiss()
                         }
                     )
                     Text(
-                        text = if (isCreatingNew) "新建模板" else "亮屏闪烁模板",
+                        text = if (isFormOpen) (if (editingProfileId == null) "新建模板" else "编辑模板") else "亮屏闪烁模板",
                         color = IosTextPrimary,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    if (isCreatingNew) {
+                    if (isFormOpen) {
                         Text(
                             text = "保存",
                             color = IosOrange,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.clickable {
-                                val profile = FlashProfile(
-                                    id = UUID.randomUUID().toString(),
-                                    name = name.ifBlank { "自定义模板" },
-                                    targetColorHex = colorHex,
-                                    targetBrightness = brightness,
-                                    onDurationMs = onDurationMs.toLongOrNull() ?: 1500L,
-                                    offDurationMs = offDurationMs.toLongOrNull() ?: 1000L,
-                                    totalDurationCircle = totalCycles.toIntOrNull() ?: 10
-                                )
-                                onSaveProfile(profile)
-                                isCreatingNew = false
+                                onSaveProfile(getCurrentFormProfile())
+                                isFormOpen = false
                             }
                         )
                     } else {
@@ -115,21 +145,35 @@ fun FlashProfileManageDialog(
                     }
                 }
 
-                if (isCreatingNew) {
-                    // 新建模板表单
+                if (isFormOpen) {
+                    // 编辑/新建表单
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        // 1. 测试按钮 (特性 5: 跑一个循环的亮屏测试)
+                        Button(
+                            onClick = { onTestProfile(getCurrentFormProfile()) },
+                            colors = ButtonDefaults.buttonColors(containerColor = IosOrange.copy(alpha = 0.15f)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, IosOrange),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = IosOrange)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("测试此效果 (体验1个循环)", color = IosOrange, fontWeight = FontWeight.Bold)
+                        }
+
+                        // 模板名称
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("模板名称", color = IosTextSecondary, fontSize = 13.sp)
                                 OutlinedTextField(
                                     value = name,
                                     onValueChange = { name = it },
-                                    placeholder = { Text("例如：暗室护眼夜红", color = IosTextSecondary) },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = IosTextPrimary,
                                         unfocusedTextColor = IosTextPrimary,
@@ -142,15 +186,16 @@ fun FlashProfileManageDialog(
                             }
                         }
 
+                        // 色彩选择 (含 Apple Watch 夜视深红)
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("选择色彩（推荐 Apple Watch 夜间深红）", color = IosTextSecondary, fontSize = 13.sp)
+                                Text("选择色彩（夜间强烈推荐 Apple Watch 深红）", color = IosTextSecondary, fontSize = 13.sp)
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    presetColors.forEach { (hex, title) ->
+                                    presetColors.forEach { (hex, _) ->
                                         val parsedColor = Color(android.graphics.Color.parseColor(hex))
                                         val isSelected = colorHex.equals(hex, ignoreCase = true)
                                         Box(
@@ -170,6 +215,7 @@ fun FlashProfileManageDialog(
                             }
                         }
 
+                        // 亮度调节
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(
@@ -191,6 +237,7 @@ fun FlashProfileManageDialog(
                             }
                         }
 
+                        // 节奏时间
                         IosGroupCard {
                             Row(
                                 modifier = Modifier
@@ -233,14 +280,13 @@ fun FlashProfileManageDialog(
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(20.dp))
                     }
                 } else {
                     // 模板列表展示
                     Button(
-                        onClick = {
-                            name = "自命名模板 ${profiles.size + 1}"
-                            isCreatingNew = true
-                        },
+                        onClick = { startCreateNew() },
                         colors = ButtonDefaults.buttonColors(containerColor = IosOrange),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -263,11 +309,15 @@ fun FlashProfileManageDialog(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clickable { startEdit(profile) }
                                         .padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
                                         Box(
                                             modifier = Modifier
                                                 .size(28.dp)
@@ -292,9 +342,16 @@ fun FlashProfileManageDialog(
                                         }
                                     }
 
-                                    if (!profile.id.startsWith("preset_")) {
-                                        IconButton(onClick = { onDeleteProfile(profile.id) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "删除", tint = Color.Red.copy(alpha = 0.8f))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // 编辑按钮
+                                        IconButton(onClick = { startEdit(profile) }) {
+                                            Icon(Icons.Default.Edit, contentDescription = "编辑模板", tint = IosOrange)
+                                        }
+                                        // 删除按钮 (允许删除模板)
+                                        if (profiles.size > 1) {
+                                            IconButton(onClick = { onDeleteProfile(profile.id) }) {
+                                                Icon(Icons.Default.Delete, contentDescription = "删除模板", tint = Color.Red.copy(alpha = 0.8f))
+                                            }
                                         }
                                     }
                                 }

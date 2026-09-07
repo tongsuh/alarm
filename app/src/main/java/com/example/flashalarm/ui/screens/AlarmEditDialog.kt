@@ -1,15 +1,19 @@
 package com.example.flashalarm.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,11 +50,11 @@ fun AlarmEditDialog(
     var label by remember { mutableStateOf(initialAlarm?.label ?: "闹钟") }
     var selectedDays by remember { mutableStateOf(initialAlarm?.repeatDays ?: emptySet()) }
 
-    // 特性 4：声音与亮屏独立勾选开关
+    // 声音与亮屏独立开关
     var isSoundEnabled by remember { mutableStateOf(initialAlarm?.isSoundEnabled ?: true) }
     var isFlashEnabled by remember { mutableStateOf(initialAlarm?.isFlashEnabled ?: true) }
 
-    // 特性 3：音频设置
+    // 音频设置
     var ringtoneTitle by remember {
         mutableStateOf(currentSelectedAudioTitle.ifBlank { initialAlarm?.ringtoneTitle ?: "默认闹钟铃声" })
     }
@@ -58,7 +62,6 @@ fun AlarmEditDialog(
         mutableStateOf(currentSelectedAudioUri ?: initialAlarm?.ringtoneUri)
     }
 
-    // 监听外部选择音频后的变更
     LaunchedEffect(currentSelectedAudioTitle, currentSelectedAudioUri) {
         if (currentSelectedAudioTitle.isNotBlank()) {
             ringtoneTitle = currentSelectedAudioTitle
@@ -68,11 +71,12 @@ fun AlarmEditDialog(
         }
     }
 
-    // 特性 2：完全自由设置自动停止时长 (分钟 + 秒数)
+    // 自由设置自动停止时长
     val initialTotalSec = initialAlarm?.autoDismissSec ?: 60
     var autoDismissMinutes by remember { mutableStateOf((initialTotalSec / 60).toString()) }
     var autoDismissSeconds by remember { mutableStateOf((initialTotalSec % 60).toString()) }
 
+    // 选中的模板 ID (修复问题 4: 保证可直接勾选切换)
     var selectedProfileId by remember {
         mutableStateOf(initialAlarm?.flashProfileId ?: profiles.firstOrNull()?.id ?: FlashProfile.PRESET_APPLE_WATCH_RED.id)
     }
@@ -144,7 +148,7 @@ fun AlarmEditDialog(
                     )
                 }
 
-                // 核心内容滚动区
+                // 内容滚动区
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -163,7 +167,7 @@ fun AlarmEditDialog(
                         }
                     )
 
-                    // 2. 标签输入与重复分组卡片 (iOS TableView Style)
+                    // 2. 标签输入与重复分组卡片
                     IosGroupCard {
                         // 标签行
                         Row(
@@ -274,7 +278,7 @@ fun AlarmEditDialog(
                         }
                     }
 
-                    // 4. 屏幕闪烁设置 (独立开关 + 模板选择)
+                    // 4. 亮屏闪烁设置 (独立开关 + 解决问题4：直接选择模板列表)
                     IosGroupCard {
                         Row(
                             modifier = Modifier
@@ -288,7 +292,7 @@ fun AlarmEditDialog(
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text("全屏视觉闪烁", color = IosTextPrimary, fontSize = 17.sp)
-                                    Text("锁屏点亮并动态闪烁背光", color = IosTextSecondary, fontSize = 13.sp)
+                                    Text("锁屏点亮并渐黑动态闪烁", color = IosTextSecondary, fontSize = 13.sp)
                                 }
                             }
                             Switch(
@@ -303,30 +307,71 @@ fun AlarmEditDialog(
 
                         if (isFlashEnabled) {
                             IosDivider()
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(onClick = onOpenProfileManager)
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                val currentProfile = profiles.find { it.id == selectedProfileId }
-                                    ?: FlashProfile.PRESET_APPLE_WATCH_RED
-                                Text("亮屏闪烁模板", color = IosTextPrimary, fontSize = 17.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 列出所有可选模板，点击直接选择生效
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("选择闪烁模板", color = IosTextSecondary, fontSize = 13.sp)
                                     Text(
-                                        text = currentProfile.name,
+                                        text = "管理/自定义模板 ⚙️",
                                         color = IosOrange,
-                                        fontSize = 15.sp
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.clickable(onClick = onOpenProfileManager)
                                     )
-                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = IosTextSecondary)
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                profiles.forEach { profile ->
+                                    val isSelected = selectedProfileId == profile.id
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) IosCardSurfaceVariant else Color.Transparent)
+                                            .clickable { selectedProfileId = profile.id }
+                                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(20.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(profile.colorInt))
+                                                    .border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = profile.name,
+                                                    color = if (isSelected) IosOrange else IosTextPrimary,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    text = "亮${profile.onDurationMs}ms / 灭${profile.offDurationMs}ms · 循环${profile.totalDurationCircle}次",
+                                                    color = IosTextSecondary,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+
+                                        if (isSelected) {
+                                            Icon(Icons.Default.Check, contentDescription = "已选择", tint = IosOrange)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // 5. 特性 2：自由设置自动停止时长
+                    // 5. 自由设置自动停止时长
                     IosGroupCard {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("未操作自动停止时长", color = IosTextPrimary, fontSize = 17.sp)

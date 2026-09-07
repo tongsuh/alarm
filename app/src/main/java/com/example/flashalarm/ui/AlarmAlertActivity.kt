@@ -31,7 +31,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 闹钟触发时全屏视觉与声音唤醒 Activity (支持声音/亮屏独立勾选、自定义音频、夜间深红)
+ * 闹钟触发时全屏视觉与声音唤醒 Activity
+ * 支持：声音/亮屏独立控制、自定义音频、平滑渐黑过渡、任意点击退出
  */
 class AlarmAlertActivity : AppCompatActivity() {
 
@@ -47,6 +48,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         const val EXTRA_OFF_DURATION_MS = "EXTRA_OFF_DURATION_MS"
         const val EXTRA_TOTAL_DURATION_CIRCLE = "EXTRA_TOTAL_DURATION_CIRCLE"
         const val EXTRA_AUTO_DISMISS_SEC = "EXTRA_AUTO_DISMISS_SEC"
+        const val EXTRA_IS_PREVIEW_MODE = "EXTRA_IS_PREVIEW_MODE"
     }
 
     // 参数配置
@@ -54,6 +56,7 @@ class AlarmAlertActivity : AppCompatActivity() {
     private var alarmLabel: String = "闹钟"
     private var isSoundEnabled: Boolean = true
     private var isFlashEnabled: Boolean = true
+    private var isPreviewMode: Boolean = false
     private var ringtoneUriStr: String? = null
     private var targetColor: Int = Color.parseColor("#FF1A00") // 默认 Apple Watch 夜间深红
     private var targetBrightness: Float = 0.85f
@@ -83,17 +86,17 @@ class AlarmAlertActivity : AppCompatActivity() {
         buildViewHierarchy()
         hideSystemUI()
 
-        // 1. 声音控制：勾选声音才播放
-        if (isSoundEnabled) {
+        // 1. 声音控制：勾选声音且非纯闪烁预览才播放
+        if (isSoundEnabled && !isPreviewMode) {
             startAudio()
+            startVibration()
         }
-        startVibration()
 
-        // 2. 亮屏控制：勾选亮屏才触发循环闪烁；未勾选则保持深黑静止
+        // 2. 亮屏控制：勾选亮屏才触发循环闪烁
         if (isFlashEnabled) {
             startFlashingLoop()
         } else {
-            // 纯声音模式下，保持全黑暗视力背景，不闪烁
+            // 纯声音模式：全黑静止背景，不闪烁
             rootContainer.setBackgroundColor(Color.BLACK)
             infoPanel.visibility = View.VISIBLE
         }
@@ -124,6 +127,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         alarmLabel = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "闹钟"
         isSoundEnabled = intent.getBooleanExtra(EXTRA_IS_SOUND_ENABLED, true)
         isFlashEnabled = intent.getBooleanExtra(EXTRA_IS_FLASH_ENABLED, true)
+        isPreviewMode = intent.getBooleanExtra(EXTRA_IS_PREVIEW_MODE, false)
         ringtoneUriStr = intent.getStringExtra(EXTRA_RINGTONE_URI)
 
         val hex = intent.getStringExtra(EXTRA_TARGET_COLOR_HEX) ?: "#FF1A00"
@@ -160,7 +164,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvLabel = TextView(this).apply {
-            text = alarmLabel
+            text = if (isPreviewMode) "效果测试预览" else alarmLabel
             textSize = 26f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -176,7 +180,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvAutoDismiss = TextView(this).apply {
-            text = if (autoDismissSec > 0) "将在 ${autoDismissSec} 秒后自动停止" else ""
+            text = if (autoDismissSec > 0 && !isPreviewMode) "将在 ${autoDismissSec} 秒后自动停止" else ""
             textSize = 15f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -208,7 +212,7 @@ class AlarmAlertActivity : AppCompatActivity() {
     }
 
     /**
-     * 协程动态切换背光与夜视深红色
+     * 协程动态切换背光与夜视色彩，支持平滑【渐黑过渡】
      */
     private fun startFlashingLoop() {
         flashJob = lifecycleScope.launch {
@@ -218,45 +222,92 @@ class AlarmAlertActivity : AppCompatActivity() {
             while (isActive && (isInfinite || cycle < totalDurationCircle)) {
                 cycle++
 
-                // ====== 亮状态 (设定颜色 + 目标背光) ======
+                // ====== 1. 亮状态 ======
                 applyScreenState(
                     color = targetColor,
                     brightness = targetBrightness,
-                    showContent = true
+                    contentAlpha = 1f
                 )
+                // 维持设定的亮时长
                 delay(onDurationMs)
 
                 if (!isActive) break
 
-                // ====== 灭状态 (纯黑 + 0.01f 最低物理背光) ======
-                applyScreenState(
-                    color = Color.BLACK,
-                    brightness = 0.01f,
-                    showContent = false
-                )
+                // ====== 2. 渐黑过渡 (Smooth Fade to Black) ======
+                // 避免突然暴暗刺眼，采用 450ms 呼吸渐隐曲线淡入纯黑
+                val transitionDuration = 450L.coerceAtMost(onDurationMs / 2).coerceAtLeast(150L)
+                smoothFadeToBlack(durationMs = transitionDuration)
+
+                if (!isActive) break
+
+                // ====== 3. 灭状态 (纯黑保持) ======
+                // 维持设定的灭时长
                 delay(offDurationMs)
             }
 
-            // 循环结束后保持常亮
+            // 循环结束后
             if (isActive) {
-                applyScreenState(color = targetColor, brightness = targetBrightness, showContent = true)
-                tvHint.text = "轻触屏幕任意位置关闭"
+                if (isPreviewMode) {
+                    // 预览跑完 1 周期自动关闭
+                    dismissAlarm("测试完成退出")
+                } else {
+                    applyScreenState(color = targetColor, brightness = targetBrightness, contentAlpha = 1f)
+                    tvHint.text = "轻触屏幕任意位置关闭"
+                }
             }
         }
     }
 
-    private fun applyScreenState(color: Int, brightness: Float, showContent: Boolean) {
+    /**
+     * 平滑渐黑过渡函数：颜色插值淡入纯黑，背光从目标亮度渐变至 0.01f
+     */
+    private suspend fun smoothFadeToBlack(durationMs: Long) {
+        val steps = 18
+        val stepInterval = durationMs / steps
+
+        val r = Color.red(targetColor)
+        val g = Color.green(targetColor)
+        val b = Color.blue(targetColor)
+        val startBrightness = targetBrightness
+        val endBrightness = 0.01f
+
+        for (i in 1..steps) {
+            if (!lifecycleScope.coroutineContext.isActive) break
+            val fraction = i.toFloat() / steps
+            // 缓动曲线平滑淡出 (Ease-out)
+            val factor = 1f - (fraction * fraction)
+
+            val currentR = (r * factor).toInt().coerceIn(0, 255)
+            val currentG = (g * factor).toInt().coerceIn(0, 255)
+            val currentB = (b * factor).toInt().coerceIn(0, 255)
+            val currentColor = Color.rgb(currentR, currentG, currentB)
+            val currentBrightness = endBrightness + (startBrightness - endBrightness) * factor
+
+            applyScreenState(
+                color = currentColor,
+                brightness = currentBrightness,
+                contentAlpha = factor
+            )
+            delay(stepInterval)
+        }
+
+        // 最终锁定为纯黑与最低背光
+        applyScreenState(Color.BLACK, endBrightness, contentAlpha = 0f)
+    }
+
+    private fun applyScreenState(color: Int, brightness: Float, contentAlpha: Float) {
         rootContainer.setBackgroundColor(color)
 
         val lp = window.attributes
         lp.screenBrightness = brightness.coerceIn(0.01f, 1.0f)
         window.attributes = lp
 
-        infoPanel.visibility = if (showContent) View.VISIBLE else View.INVISIBLE
+        infoPanel.alpha = contentAlpha
+        infoPanel.visibility = if (contentAlpha > 0.05f) View.VISIBLE else View.INVISIBLE
     }
 
     private fun startAutoDismissTimer() {
-        if (autoDismissSec <= 0) return
+        if (autoDismissSec <= 0 || isPreviewMode) return
         autoDismissJob = lifecycleScope.launch {
             var remain = autoDismissSec
             while (isActive && remain > 0) {
@@ -295,7 +346,6 @@ class AlarmAlertActivity : AppCompatActivity() {
                 start()
             }
         } catch (e: Exception) {
-            // 如果自定义文件失效，安全降级回系统默认铃声
             try {
                 val fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 mediaPlayer = MediaPlayer().apply {

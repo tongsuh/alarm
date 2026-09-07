@@ -1,5 +1,6 @@
 package com.example.flashalarm.ui.components
 
+import android.view.SoundEffectConstants
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -7,13 +8,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,7 +26,7 @@ import com.example.flashalarm.ui.theme.IosTextSecondary
 
 /**
  * 仿 iOS 原生鼓轮时间选择器 (Wheel Time Picker)
- * 支持惯性滑动、自动吸附中心、渐隐立体透视
+ * 支持惯性滑动、居中吸附、立体透视、以及 iPhone 原生调时间机械齿轮音效与触觉反馈
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -46,6 +48,9 @@ fun IosWheelTimePicker(
     val hourFlingBehavior = rememberSnapFlingBehavior(lazyListState = hourListState)
     val minuteFlingBehavior = rememberSnapFlingBehavior(lazyListState = minuteListState)
 
+    val view = LocalView.current
+    val haptic = LocalHapticFeedback.current
+
     // 动态监听中心选中项
     val selectedHour by remember {
         derivedStateOf {
@@ -63,7 +68,21 @@ fun IosWheelTimePicker(
         }
     }
 
+    // 跟踪是否是初次加载，避免刚打开页面就发声
+    var isInitialized by remember { mutableStateOf(false) }
+
     LaunchedEffect(selectedHour, selectedMinute) {
+        if (isInitialized) {
+            // 播放 iPhone 机械齿轮音效与震动
+            try {
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        } else {
+            isInitialized = true
+        }
         onTimeChanged(selectedHour, selectedMinute)
     }
 
@@ -133,7 +152,7 @@ private fun WheelColumn(
     LazyColumn(
         state = state,
         flingBehavior = flingBehavior,
-        contentPadding = PaddingValues(vertical = itemHeight * 2), // 居中占位 padding
+        contentPadding = PaddingValues(vertical = itemHeight * 2), // 居中占位
         modifier = modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
