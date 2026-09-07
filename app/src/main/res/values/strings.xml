@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">闪烁闹钟</string>
+    <string name="alarm_default_title">起床闹钟</string>
+    <string name="alarm_ringing_title">闹钟响铃中</string>
+    <string name="tap_to_dismiss">轻触屏幕任意位置关闭闹钟</string>
+    <string name="auto_dismiss_hint">将在 %1$d 秒后自动关闭</string>
+</resources>
