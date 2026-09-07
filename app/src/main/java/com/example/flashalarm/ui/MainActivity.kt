@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
     private var selectedAudioUriState by mutableStateOf<String?>(null)
     private var selectedAudioTitleState by mutableStateOf("默认闹钟铃声")
 
-    // 系统铃声与本地音乐选择器回调 (特性 4: 将音频深拷贝至应用私有目录，彻底杜绝权限丢失变回默认铃声)
+    // 系统铃声与本地音乐选择器回调 (将音频拷贝到私有目录持久保存)
     private val ringtonePickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                         "已选音乐"
                     }
 
-                    // 拷贝音频至应用内部存储，获得终身直接读取权限
+                    // 拷贝音频至应用私有存储
                     val localPath = AlarmAudioHelper.saveAudioToInternalStorage(this, uri, currentEditingAlarmId)
                     selectedAudioUriState = localPath ?: uri.toString()
                     selectedAudioTitleState = title
@@ -173,7 +173,7 @@ class MainActivity : ComponentActivity() {
                                 profiles = profileRepo.getAllProfiles()
                             },
                             onTestProfile = { profile ->
-                                runProfileSingleCycleTest(profile)
+                                runProfilePreviewTest(profile)
                             },
                             onDismiss = { isProfileDialogOpen = false }
                         )
@@ -183,9 +183,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * 启动系统音频与铃声选择器
-     */
     private fun launchAudioPicker() {
         try {
             val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
@@ -201,9 +198,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 跑 1 个循环的亮屏单周期测试
+     * 运行完整总循环时长的亮屏测试 (特性 1: 运行全部设定的循环，并在渐黑后自动完成或点击退出)
      */
-    private fun runProfileSingleCycleTest(profile: FlashProfile) {
+    private fun runProfilePreviewTest(profile: FlashProfile) {
+        val totalSec = ((profile.totalDurationCircle * (profile.onDurationMs + profile.offDurationMs)) / 1000L).toInt() + 2
         val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             putExtra(AlarmAlertActivity.EXTRA_ALARM_ID, 888888L)
             putExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL, "效果测试")
@@ -214,14 +212,14 @@ class MainActivity : ComponentActivity() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 1)
-            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 20)
+            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle) // 运行全部循环
+            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, totalSec.coerceAtLeast(5))
         }
         startActivity(alertIntent)
     }
 
     /**
-     * 特性 5: 请求防后台杀进程权限 (忽略电池优化)，确保到点 100% 必响
+     * 核心权限配置：确保在使用其他 App 时 100% 弹出和响铃
      */
     private fun checkAndRequestPermissions() {
         // 1. 通知权限
@@ -248,7 +246,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 3. 全屏意图权限
+        // 3. 全屏意图权限 (Android 14+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (!notificationManager.canUseFullScreenIntent()) {
@@ -263,7 +261,21 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 4. 特性 5: 忽略电池优化白名单 (防止在使用其他应用时后台被杀)
+        // 4. 悬浮窗 / 在其他应用上层显示权限 (解决在使用微信、刷抖音、打游戏时无法弹窗的根因)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                Toast.makeText(this, "请开启【悬浮窗/后台弹出界面】权限，确保在玩手机时闹钟能强行弹窗提醒", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 5. 忽略电池优化白名单 (防止后台被系统杀死)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
             try {

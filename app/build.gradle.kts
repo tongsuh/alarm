@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.flashalarm"
         minSdk = 26 // Android 8.0+，完美兼容 Android 10 到 Android 14+
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

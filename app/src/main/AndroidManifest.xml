@@ -5,18 +5,26 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- 全屏唤醒关键权限 (Android 10+) -->
+    <!-- 全屏唤醒与通知关键权限 -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-
-    <!-- 发送通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 硬件唤醒与震动 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- 设备重启后重新注册闹钟 -->
+    <!-- 开机自启恢复 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 前台服务类型声明 (保证在使用其他应用或锁屏时 100% 播放音乐与唤醒) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- 悬浮窗 / 后台弹出界面权限 (针对小米 HyperOS/MIUI、华为、OPPO 等系统) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 忽略电池优化申请 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".FlashAlarmApp"
@@ -49,6 +57,12 @@
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.FlashAlarm.Alert" />
+
+        <!-- 核心前台守护与播放服务 -->
+        <service
+            android:name=".service.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- 闹钟广播接收器 -->
         <receiver

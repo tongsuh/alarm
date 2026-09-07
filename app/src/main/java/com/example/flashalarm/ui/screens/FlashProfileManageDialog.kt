@@ -164,7 +164,7 @@ fun FlashProfileManageDialog(
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = IosOrange)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("测试此效果 (体验1个循环)", color = IosOrange, fontWeight = FontWeight.Bold)
+                            Text("测试此效果 (运行全部循环时长)", color = IosOrange, fontWeight = FontWeight.Bold)
                         }
 
                         // 模板名称

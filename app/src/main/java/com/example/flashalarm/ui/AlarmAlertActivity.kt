@@ -25,6 +25,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.flashalarm.service.AlarmService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -32,8 +33,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * 闹钟触发时全屏视觉与声音唤醒 Activity
- * 解决需求：持续规律闪烁与声音同步对齐、平滑渐黑、长效音频播放无权限丢失
+ * 闹钟触发时全屏视觉唤醒 Activity
+ * 支持：全屏规律闪烁、平滑渐黑过渡、测试模式按总循环时长运行、联动前台服务停止
  */
 class AlarmAlertActivity : AppCompatActivity() {
 
@@ -75,8 +76,9 @@ class AlarmAlertActivity : AppCompatActivity() {
 
     private var flashJob: Job? = null
     private var autoDismissJob: Job? = null
-    private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
+
+    // 本地备份播放器（若前台服务未启动则兜底播放）
+    private var backupMediaPlayer: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setupLockScreenFlags()
@@ -86,13 +88,12 @@ class AlarmAlertActivity : AppCompatActivity() {
         buildViewHierarchy()
         hideSystemUI()
 
-        // 1. 声音控制
-        if (isSoundEnabled && !isPreviewMode) {
-            startAudio()
-            startVibration()
+        // 如果不是预览模式，且 AlarmService 尚未运行，则启动兜底播放
+        if (!isPreviewMode && isSoundEnabled && !AlarmService.isServiceRunning) {
+            startBackupAudio()
         }
 
-        // 2. 亮屏控制：整个响铃生命周期内全程持续规律闪烁，绝不会中途停闪常亮
+        // 亮屏控制：整个有效时长内全程规律闪烁，绝不中途常亮
         if (isFlashEnabled) {
             startContinuousFlashingLoop()
         } else {
@@ -100,7 +101,7 @@ class AlarmAlertActivity : AppCompatActivity() {
             infoPanel.visibility = View.VISIBLE
         }
 
-        // 3. 自动停止倒计时 (以音频与闪烁两者的最大时长为准)
+        // 自动停止计时器
         startAutoDismissTimer()
     }
 
@@ -142,15 +143,15 @@ class AlarmAlertActivity : AppCompatActivity() {
         totalDurationCircle = intent.getIntExtra(EXTRA_TOTAL_DURATION_CIRCLE, 15)
         autoDismissSec = intent.getIntExtra(EXTRA_AUTO_DISMISS_SEC, 60)
 
-        // 关键改动 (特性 1): 计算有效总时长，以闪烁总时长和音频自动停止时长中较长的一个为准
         val flashCycleTotalSec = if (totalDurationCircle > 0) {
             ((totalDurationCircle * (onDurationMs + offDurationMs)) / 1000L).toInt()
         } else {
             autoDismissSec
         }
 
+        // 特性 1: 预览测试运行完整总循环时长，而不再只跑一次循环
         effectiveTotalDurationSec = if (isPreviewMode) {
-            ((onDurationMs + offDurationMs + 500L) / 1000L).toInt().coerceAtLeast(3)
+            flashCycleTotalSec.coerceAtLeast(3)
         } else if (isSoundEnabled && isFlashEnabled) {
             maxOf(autoDismissSec, flashCycleTotalSec)
         } else if (isFlashEnabled) {
@@ -180,7 +181,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvLabel = TextView(this).apply {
-            text = if (isPreviewMode) "效果测试预览" else alarmLabel
+            text = if (isPreviewMode) "全循环效果测试" else alarmLabel
             textSize = 26f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -228,12 +229,12 @@ class AlarmAlertActivity : AppCompatActivity() {
     }
 
     /**
-     * 全程持续规律闪烁协程（特性 1: 不会在音频未结束前中途停闪常亮，全程循环闪烁到底）
+     * 持续规律闪烁循环（含平滑渐黑）
      */
     private fun startContinuousFlashingLoop() {
         flashJob = lifecycleScope.launch {
             var cycle = 0
-            val maxCycles = if (isPreviewMode) 1 else Int.MAX_VALUE
+            val maxCycles = if (isPreviewMode) totalDurationCircle.coerceAtLeast(1) else Int.MAX_VALUE
 
             while (isActive && cycle < maxCycles) {
                 cycle++
@@ -259,7 +260,7 @@ class AlarmAlertActivity : AppCompatActivity() {
             }
 
             if (isActive && isPreviewMode) {
-                dismissAlarm("预览结束")
+                dismissAlarm("测试总循环结束")
             }
         }
     }
@@ -320,20 +321,17 @@ class AlarmAlertActivity : AppCompatActivity() {
                 tvAutoDismiss.text = "将在 ${remain} 秒后自动停止"
             }
             if (isActive) {
-                dismissAlarm("倒计时结束自动关闭")
+                dismissAlarm("自动停止")
             }
         }
     }
 
-    /**
-     * 播放自定义或系统音频 (特性 4: 优先读取内部存储私有持久化音乐文件，彻底杜绝权限丢失)
-     */
-    private fun startAudio() {
+    private fun startBackupAudio() {
         try {
             if (!ringtoneUriStr.isNullOrBlank()) {
                 val internalFile = File(ringtoneUriStr!!)
                 if (internalFile.exists() && internalFile.length() > 0) {
-                    mediaPlayer = MediaPlayer().apply {
+                    backupMediaPlayer = MediaPlayer().apply {
                         setDataSource(internalFile.absolutePath)
                         setAudioAttributes(
                             AudioAttributes.Builder()
@@ -348,61 +346,8 @@ class AlarmAlertActivity : AppCompatActivity() {
                     return
                 }
             }
-
-            val audioUri = if (!ringtoneUriStr.isNullOrBlank()) {
-                Uri.parse(ringtoneUriStr)
-            } else {
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            }
-
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(this@AlarmAlertActivity, audioUri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                isLooping = true
-                prepare()
-                start()
-            }
         } catch (e: Exception) {
-            try {
-                val fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(this@AlarmAlertActivity, fallbackUri)
-                    setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
-                    isLooping = true
-                    prepare()
-                    start()
-                }
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-            }
-        }
-    }
-
-    private fun startVibration() {
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            manager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 500), 0))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(longArrayOf(0, 800, 500), 0)
+            e.printStackTrace()
         }
     }
 
@@ -424,18 +369,18 @@ class AlarmAlertActivity : AppCompatActivity() {
         lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = lp
 
+        // 联动前台服务：彻底停止音频播放与前台通知
+        AlarmService.stopAlarm(this)
+
         try {
-            mediaPlayer?.let {
+            backupMediaPlayer?.let {
                 if (it.isPlaying) it.stop()
                 it.release()
             }
-            mediaPlayer = null
+            backupMediaPlayer = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        vibrator?.cancel()
-        vibrator = null
 
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (alarmId != -1L) {
