@@ -1,9 +1,11 @@
 package com.example.flashalarm.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FlashOff
@@ -11,10 +13,12 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,6 +31,8 @@ import com.example.flashalarm.ui.theme.*
 fun AlarmListScreen(
     alarms: List<AlarmItem>,
     profiles: List<FlashProfile>,
+    hasOverlayPermission: Boolean,
+    onRequestOverlayPermission: () -> Unit,
     onToggleAlarm: (AlarmItem, Boolean) -> Unit,
     onDeleteAlarm: (AlarmItem) -> Unit,
     onEditAlarm: (AlarmItem) -> Unit,
@@ -64,47 +70,78 @@ fun AlarmListScreen(
             }
         }
     ) { paddingValues ->
-        if (alarms.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "无闹钟",
-                        fontSize = 24.sp,
-                        color = IosTextSecondary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "点击右上角 ＋ 添加新闹钟",
-                        fontSize = 15.sp,
-                        color = IosTextTertiary
-                    )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // 权限引导提示横幅 (关键: 引导用户开启悬浮窗权限，实现在其他 App 界面直接全屏闪烁)
+            if (!hasOverlayPermission) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clickable(onClick = onRequestOverlayPermission),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = IosOrange.copy(alpha = 0.15f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, IosOrange.copy(alpha = 0.6f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = IosOrange, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("点击开启【在其他应用上层显示/悬浮窗】", color = IosOrange, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("开启后，在使用微信、玩游戏时闹钟才能直接在最顶层全屏闪烁", color = IosTextSecondary, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(alarms, key = { it.id }) { alarm ->
-                    val profile = profiles.find { it.id == alarm.flashProfileId }
-                        ?: FlashProfile.PRESET_APPLE_WATCH_RED
 
-                    IosAlarmItemRow(
-                        alarm = alarm,
-                        profile = profile,
-                        onToggle = { onToggleAlarm(alarm, it) },
-                        onClick = { onEditAlarm(alarm) }
-                    )
-                    HorizontalDivider(color = IosSeparator.copy(alpha = 0.5f), thickness = 0.5.dp)
+            if (alarms.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "无闹钟",
+                            fontSize = 24.sp,
+                            color = IosTextSecondary,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "点击右上角 ＋ 添加新闹钟",
+                            fontSize = 15.sp,
+                            color = IosTextTertiary
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(alarms, key = { it.id }) { alarm ->
+                        val profile = profiles.find { it.id == alarm.flashProfileId }
+                            ?: FlashProfile.PRESET_APPLE_WATCH_RED
+
+                        IosAlarmItemRow(
+                            alarm = alarm,
+                            profile = profile,
+                            onToggle = { onToggleAlarm(alarm, it) },
+                            onClick = { onEditAlarm(alarm) }
+                        )
+                        HorizontalDivider(color = IosSeparator.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    }
                 }
             }
         }
@@ -184,7 +221,7 @@ fun IosAlarmItemRow(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // 第二行：亮屏状态（特性 2: 仅显示模板名字，不再显示长长的时间间隔）
+            // 第二行：亮屏状态（纯模板名称）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isFlashEnabled) {
                     Icon(

@@ -1,28 +1,40 @@
 package com.example.flashalarm.service
 
-import android.app.Notification
+import android.app.ActivityOptions
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.PixelFormat
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.*
+import android.provider.Settings
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import com.example.flashalarm.FlashAlarmApp
 import com.example.flashalarm.ui.AlarmAlertActivity
+import kotlinx.coroutines.*
 import java.io.File
 
 /**
- * 核心前台守护与音频服务 (Foreground Service)
- * 彻底解决“使用其他应用时闹钟不响、只有打开本应用才响”的底层根因：
- * 1. 即使退到后台被系统限制拉起 Activity，音频和震动也由前台服务在到点那一刻立刻全音量轰鸣播放！
- * 2. 持有硬件级 PARTIAL_WAKE_LOCK，防止 CPU 在后台休眠。
- * 3. 发送高优先级全屏通知，强力唤醒屏幕。
+ * 核心前台守护与全屏闪烁服务 (Foreground Service + WindowManager Overlay)
+ *
+ * 彻底攻克“在其他 App 界面时屏幕闪烁不执行”的核心原因：
+ * 1. Android 10+ 严格禁止后台应用直接抢占前台 Activity（打断用户玩游戏/聊天）。
+ * 2. 解决方案：借助系统级悬浮窗（TYPE_APPLICATION_OVERLAY）直接在其他应用上方挂载全屏闪烁遮罩！
+ * 3. 无论用户在微信、抖音还是游戏界面，屏幕直接以设定的颜色与亮度全屏呼吸闪烁！
+ * 4. 配合 Android 14 的 MODE_BACKGROUND_ACTIVITY_START_ALLOWED 豁免，双重保障！
  */
 class AlarmService : Service() {
 
@@ -33,11 +45,18 @@ class AlarmService : Service() {
         var isServiceRunning = false
             private set
 
+        var instance: AlarmService? = null
+            private set
+
         fun stopAlarm(context: Context) {
             val stopIntent = Intent(context, AlarmService::class.java).apply {
                 action = ACTION_STOP_ALARM
             }
             context.startService(stopIntent)
+        }
+
+        fun dismissOverlay() {
+            instance?.dismissOverlayInternal()
         }
     }
 
@@ -45,6 +64,17 @@ class AlarmService : Service() {
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var autoStopHandler: Handler? = null
+
+    // WindowManager 全屏遮罩相关
+    private var windowManager: WindowManager? = null
+    private var overlayRootView: FrameLayout? = null
+    private var overlayFlashJob: Job? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -55,11 +85,8 @@ class AlarmService : Service() {
         }
 
         isServiceRunning = true
-
-        // 1. 获取 WakeLock，锁定 CPU 不休眠
         acquireWakeLock()
 
-        // 2. 解析参数
         val alarmId = intent.getLongExtra(AlarmAlertActivity.EXTRA_ALARM_ID, -1L)
         val alarmLabel = intent.getStringExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL) ?: "闹钟"
         val isSoundEnabled = intent.getBooleanExtra(AlarmAlertActivity.EXTRA_IS_SOUND_ENABLED, true)
@@ -72,7 +99,15 @@ class AlarmService : Service() {
         val totalDurationCircle = intent.getIntExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 15)
         val autoDismissSec = intent.getIntExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 60)
 
-        // 3. 构建点击与全屏 Intent
+        // 1. Android 14+ 关键适配：给 PendingIntent 设置允许后台弹窗的豁免参数
+        val bundleOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ActivityOptions.makeBasic().apply {
+                setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            }.toBundle()
+        } else {
+            null
+        }
+
         val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -94,10 +129,10 @@ class AlarmService : Service() {
             this,
             alarmId.toInt(),
             alertIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            bundleOptions
         )
 
-        // 停止通知 PendingIntent
         val stopServiceIntent = Intent(this, AlarmService::class.java).apply {
             action = ACTION_STOP_ALARM
         }
@@ -108,7 +143,7 @@ class AlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 4. 构建前台通知并立即以高优先级常驻前台
+        // 2. 前台常驻通知
         val notification = NotificationCompat.Builder(this, FlashAlarmApp.ALARM_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
@@ -122,22 +157,53 @@ class AlarmService : Service() {
             .setOngoing(true)
             .build()
 
-        startForeground(alarmId.toInt().coerceAtLeast(1), notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                alarmId.toInt().coerceAtLeast(1),
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(alarmId.toInt().coerceAtLeast(1), notification)
+        }
 
-        // 5. 由前台服务直接播放音频与震动 (即使 Activity 还在后台被限制，声音也立即炸响)
+        // 3. 播放音乐与震动
         if (isSoundEnabled) {
             playRingtone(ringtoneUriStr)
         }
         startVibration()
 
-        // 6. 强力拉起全屏界面
-        try {
-            startActivity(alertIntent)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        // 4. 关键突破：如果在其他应用界面，直接通过 WindowManager 在屏幕最顶层挂载全屏遮罩闪烁！
+        if (isFlashEnabled) {
+            val targetColor = try {
+                Color.parseColor(targetColorHex)
+            } catch (e: Exception) {
+                Color.parseColor("#FF1A00")
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                showFullscreenOverlay(
+                    targetColor = targetColor,
+                    targetBrightness = targetBrightness,
+                    onDurationMs = onDurationMs,
+                    offDurationMs = offDurationMs,
+                    alarmLabel = alarmLabel
+                )
+            }
         }
 
-        // 7. 超时自动停止保护
+        // 5. 尝试通过 PendingIntent 与 ActivityOptions 启动 Activity (Android 14 规范)
+        try {
+            fullScreenPendingIntent.send(this, 0, null, null, null, null, bundleOptions)
+        } catch (e: Exception) {
+            try {
+                startActivity(alertIntent, bundleOptions)
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+        }
+
+        // 6. 自动停止保护
         if (autoDismissSec > 0) {
             autoStopHandler = Handler(Looper.getMainLooper()).apply {
                 postDelayed({
@@ -149,6 +215,138 @@ class AlarmService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * 系统级全屏遮罩：无视任何前台第三方 App（微信/游戏/抖音），直接在最上层执行规律闪烁与渐黑
+     */
+    private fun showFullscreenOverlay(
+        targetColor: Int,
+        targetBrightness: Float,
+        onDurationMs: Long,
+        offDurationMs: Long,
+        alarmLabel: String
+    ) {
+        if (overlayRootView != null) return
+
+        try {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                overlayType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.FILL
+            }
+
+            overlayRootView = FrameLayout(this).apply {
+                setBackgroundColor(targetColor)
+                setOnTouchListener { _, event ->
+                    if (event.action == MotionEvent.ACTION_DOWN) {
+                        stopAlarmInternal()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                setOnClickListener {
+                    stopAlarmInternal()
+                }
+            }
+
+            val centerPanel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                }
+            }
+
+            val tvLabel = TextView(this).apply {
+                text = alarmLabel
+                textSize = 28f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+            }
+
+            val tvTime = TextView(this).apply {
+                val now = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                text = now
+                textSize = 72f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(0, 14, 0, 14)
+            }
+
+            val tvHint = TextView(this).apply {
+                text = "轻触屏幕任意位置关闭闹钟"
+                textSize = 18f
+                setTextColor(Color.argb(180, 255, 255, 255))
+                gravity = Gravity.CENTER
+            }
+
+            centerPanel.addView(tvLabel)
+            centerPanel.addView(tvTime)
+            centerPanel.addView(tvHint)
+            overlayRootView?.addView(centerPanel)
+
+            windowManager?.addView(overlayRootView, params)
+
+            // 启动全屏遮罩的持续呼吸闪烁与平滑渐黑 (纯本地 GPU 渲染，零 IPC 开销)
+            overlayFlashJob = serviceScope.launch {
+                val steps = 18
+                val stepTime = 450L / steps
+                val r = Color.red(targetColor)
+                val g = Color.green(targetColor)
+                val b = Color.blue(targetColor)
+
+                while (isActive) {
+                    // 亮状态
+                    overlayRootView?.setBackgroundColor(targetColor)
+                    centerPanel.visibility = View.VISIBLE
+                    centerPanel.alpha = 1f
+                    delay(onDurationMs)
+
+                    if (!isActive) break
+
+                    // 平滑渐黑过渡 (450ms)
+                    for (i in 1..steps) {
+                        if (!isActive) break
+                        val factor = 1f - ((i.toFloat() / steps) * (i.toFloat() / steps))
+                        val curColor = Color.rgb((r * factor).toInt(), (g * factor).toInt(), (b * factor).toInt())
+                        overlayRootView?.setBackgroundColor(curColor)
+                        centerPanel.alpha = factor
+                        delay(stepTime)
+                    }
+
+                    if (!isActive) break
+
+                    // 暗状态保持
+                    overlayRootView?.setBackgroundColor(Color.BLACK)
+                    centerPanel.visibility = View.INVISIBLE
+                    delay(offDurationMs)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun acquireWakeLock() {
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -156,7 +354,7 @@ class AlarmService : Service() {
                 PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "FlashAlarm:AlarmServiceWakeLock"
             )
-            wakeLock?.acquire(15 * 60 * 1000L) // 最多持有 15 分钟
+            wakeLock?.acquire(15 * 60 * 1000L)
         }
     }
 
@@ -235,9 +433,26 @@ class AlarmService : Service() {
         }
     }
 
+    fun dismissOverlayInternal() {
+        overlayFlashJob?.cancel()
+        overlayFlashJob = null
+
+        if (overlayRootView != null && windowManager != null) {
+            try {
+                windowManager?.removeView(overlayRootView)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            overlayRootView = null
+            windowManager = null
+        }
+    }
+
     private fun stopAlarmInternal() {
         autoStopHandler?.removeCallbacksAndMessages(null)
         autoStopHandler = null
+
+        dismissOverlayInternal()
 
         try {
             mediaPlayer?.let {
@@ -264,6 +479,10 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
+        serviceScope.cancel()
         stopAlarmInternal()
     }
 }

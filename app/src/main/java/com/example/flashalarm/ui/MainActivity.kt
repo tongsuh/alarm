@@ -18,9 +18,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.flashalarm.data.AlarmRepository
 import com.example.flashalarm.data.FlashProfileRepository
@@ -30,8 +35,7 @@ import com.example.flashalarm.scheduler.AlarmScheduler
 import com.example.flashalarm.ui.screens.AlarmEditDialog
 import com.example.flashalarm.ui.screens.AlarmListScreen
 import com.example.flashalarm.ui.screens.FlashProfileManageDialog
-import com.example.flashalarm.ui.theme.FlashAlarmTheme
-import com.example.flashalarm.ui.theme.IosBackground
+import com.example.flashalarm.ui.theme.*
 import com.example.flashalarm.util.AlarmAudioHelper
 
 class MainActivity : ComponentActivity() {
@@ -42,8 +46,10 @@ class MainActivity : ComponentActivity() {
     private var currentEditingAlarmId: Long = System.currentTimeMillis()
     private var selectedAudioUriState by mutableStateOf<String?>(null)
     private var selectedAudioTitleState by mutableStateOf("默认闹钟铃声")
+    private var hasOverlayPermissionState by mutableStateOf(true)
+    private var showOverlayPermissionPromptDialog by mutableStateOf(false)
 
-    // 系统铃声与本地音乐选择器回调 (将音频拷贝到私有目录持久保存)
+    // 系统铃声与本地音乐选择器回调
     private val ringtonePickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -62,7 +68,6 @@ class MainActivity : ComponentActivity() {
                         "已选音乐"
                     }
 
-                    // 拷贝音频至应用私有存储
                     val localPath = AlarmAudioHelper.saveAudioToInternalStorage(this, uri, currentEditingAlarmId)
                     selectedAudioUriState = localPath ?: uri.toString()
                     selectedAudioTitleState = title
@@ -84,6 +89,7 @@ class MainActivity : ComponentActivity() {
         alarmRepo = AlarmRepository(this)
         profileRepo = FlashProfileRepository(this)
 
+        updateOverlayPermissionState()
         checkAndRequestPermissions()
 
         setContent {
@@ -102,6 +108,8 @@ class MainActivity : ComponentActivity() {
                     AlarmListScreen(
                         alarms = alarms,
                         profiles = profiles,
+                        hasOverlayPermission = hasOverlayPermissionState,
+                        onRequestOverlayPermission = { requestOverlayPermission() },
                         onToggleAlarm = { alarm, enabled ->
                             val updated = alarm.copy(isEnabled = enabled)
                             alarmRepo.saveAlarm(updated)
@@ -142,6 +150,8 @@ class MainActivity : ComponentActivity() {
                         AlarmEditDialog(
                             initialAlarm = editingAlarm,
                             profiles = profiles,
+                            hasOverlayPermission = hasOverlayPermissionState,
+                            onRequestOverlayPermission = { requestOverlayPermission() },
                             onSave = { savedAlarm ->
                                 alarmRepo.saveAlarm(savedAlarm)
                                 if (savedAlarm.isEnabled) {
@@ -149,7 +159,12 @@ class MainActivity : ComponentActivity() {
                                 }
                                 alarms = alarmRepo.getAllAlarms()
                                 isEditDialogOpen = false
-                                Toast.makeText(this@MainActivity, "闹钟已存储", Toast.LENGTH_SHORT).show()
+                                if (savedAlarm.isFlashEnabled && !hasOverlayPermissionState) {
+                                    Toast.makeText(this@MainActivity, "⚠️ 闹钟已存储。请开启悬浮窗权限，使用其他应用时屏幕才能闪烁！", Toast.LENGTH_LONG).show()
+                                    showOverlayPermissionPromptDialog = true
+                                } else {
+                                    Toast.makeText(this@MainActivity, "闹钟已存储", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onDismiss = { isEditDialogOpen = false },
                             onPickAudio = { launchAudioPicker() },
@@ -178,6 +193,80 @@ class MainActivity : ComponentActivity() {
                             onDismiss = { isProfileDialogOpen = false }
                         )
                     }
+
+                    // 核心权限引导弹窗：在其他应用上层显示 (悬浮窗)
+                    if (showOverlayPermissionPromptDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showOverlayPermissionPromptDialog = false },
+                            title = {
+                                Text("开启「在其他应用上层显示」", color = IosTextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            },
+                            text = {
+                                Text(
+                                    text = "闪屏闹钟的核心机制为屏幕规律闪烁唤醒。\n\n当您在使用微信聊天、刷视频或玩游戏时，必须开启【在其他应用上层显示 / 悬浮窗】权限，闹钟到期时才能直接在屏幕最顶层规律闪烁唤醒您。\n\n（小米/红米手机用户还请在应用权限设置中勾选开启「后台弹出界面」）",
+                                    color = IosTextSecondary,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showOverlayPermissionPromptDialog = false
+                                        requestOverlayPermission()
+                                    }
+                                ) {
+                                    Text("前往设置开启", color = IosOrange, fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showOverlayPermissionPromptDialog = false }) {
+                                    Text("稍后再说", color = IosTextSecondary)
+                                }
+                            },
+                            containerColor = IosCardSurface
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val wasGranted = hasOverlayPermissionState
+        updateOverlayPermissionState()
+        if (!wasGranted && hasOverlayPermissionState) {
+            Toast.makeText(this, "✅ 悬浮闪屏权限已就绪！在其他应用界面时将正常闪烁", Toast.LENGTH_SHORT).show()
+            showOverlayPermissionPromptDialog = false
+        }
+    }
+
+    private fun updateOverlayPermissionState() {
+        hasOverlayPermissionState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                Toast.makeText(this, "开启【在其他应用上层显示/悬浮窗】，在使用微信玩游戏时屏幕才能直接闪烁！", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                try {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
                 }
             }
         }
@@ -198,7 +287,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 运行完整总循环时长的亮屏测试 (特性 1: 运行全部设定的循环，并在渐黑后自动完成或点击退出)
+     * 运行完整总循环时长的亮屏测试
      */
     private fun runProfilePreviewTest(profile: FlashProfile) {
         val totalSec = ((profile.totalDurationCircle * (profile.onDurationMs + profile.offDurationMs)) / 1000L).toInt() + 2
@@ -212,17 +301,17 @@ class MainActivity : ComponentActivity() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle) // 运行全部循环
+            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle)
             putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, totalSec.coerceAtLeast(5))
         }
         startActivity(alertIntent)
     }
 
-    /**
-     * 核心权限配置：确保在使用其他 App 时 100% 弹出和响铃
-     */
     private fun checkAndRequestPermissions() {
-        // 1. 通知权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            showOverlayPermissionPromptDialog = true
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -231,7 +320,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 2. 精确闹钟权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             if (!alarmManager.canScheduleExactAlarms()) {
@@ -246,7 +334,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 3. 全屏意图权限 (Android 14+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (!notificationManager.canUseFullScreenIntent()) {
@@ -261,21 +348,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 4. 悬浮窗 / 在其他应用上层显示权限 (解决在使用微信、刷抖音、打游戏时无法弹窗的根因)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            try {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-                startActivity(intent)
-                Toast.makeText(this, "请开启【悬浮窗/后台弹出界面】权限，确保在玩手机时闹钟能强行弹窗提醒", Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // 5. 忽略电池优化白名单 (防止后台被系统杀死)
+        // 忽略电池优化申请
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
             try {

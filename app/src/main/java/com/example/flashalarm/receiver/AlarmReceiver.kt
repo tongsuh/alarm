@@ -1,8 +1,11 @@
 package com.example.flashalarm.receiver
 
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.flashalarm.data.AlarmRepository
 import com.example.flashalarm.data.FlashProfileRepository
@@ -45,7 +48,51 @@ class AlarmReceiver : BroadcastReceiver() {
             e.printStackTrace()
         }
 
-        // 2. 调度间隔重响机制
+        // 2. 尝试直接通过 PendingIntent.send 启动全屏界面 (附带 Android 14+ 豁免)
+        val bundleOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ActivityOptions.makeBasic().apply {
+                setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            }.toBundle()
+        } else {
+            null
+        }
+
+        val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(AlarmAlertActivity.EXTRA_ALARM_ID, alarm.id)
+            putExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL, alarm.label)
+            putExtra(AlarmAlertActivity.EXTRA_IS_SOUND_ENABLED, alarm.isSoundEnabled)
+            putExtra(AlarmAlertActivity.EXTRA_IS_FLASH_ENABLED, alarm.isFlashEnabled)
+            putExtra(AlarmAlertActivity.EXTRA_RINGTONE_URI, alarm.ringtoneUri)
+            putExtra(AlarmAlertActivity.EXTRA_TARGET_COLOR_HEX, profile.targetColorHex)
+            putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
+            putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
+            putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
+            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle)
+            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, alarm.autoDismissSec)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            alarm.id.toInt(),
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            bundleOptions
+        )
+
+        try {
+            pendingIntent.send(context, 0, null, null, null, null, bundleOptions)
+        } catch (e: Exception) {
+            try {
+                context.startActivity(alertIntent, bundleOptions)
+            } catch (ex: Exception) {
+                // 若系统限制后台弹窗，由 AlarmService 的 WindowManager 悬浮窗遮罩兜底执行闪烁
+            }
+        }
+
+        // 3. 调度间隔重响机制
         val isIntervalTrigger = intent.getBooleanExtra("EXTRA_IS_INTERVAL_REPEAT", false)
         val currentRepeatIndex = if (isIntervalTrigger) alarm.currentIntervalIndex + 1 else 0
 

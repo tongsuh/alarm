@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,7 +43,9 @@ fun AlarmEditDialog(
     onPickAudio: () -> Unit,
     onOpenProfileManager: () -> Unit,
     currentSelectedAudioTitle: String = "默认闹钟铃声",
-    currentSelectedAudioUri: String? = null
+    currentSelectedAudioUri: String? = null,
+    hasOverlayPermission: Boolean = true,
+    onRequestOverlayPermission: () -> Unit = {}
 ) {
     val now = Calendar.getInstance()
     var hour by remember { mutableStateOf(initialAlarm?.hour ?: now.get(Calendar.HOUR_OF_DAY)) }
@@ -406,6 +409,37 @@ fun AlarmEditDialog(
                         }
 
                         if (isFlashEnabled) {
+                            if (!hasOverlayPermission) {
+                                IosDivider()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(onClick = onRequestOverlayPermission)
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = IosOrange,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "⚠️ 未开启【在其他应用上层显示】权限",
+                                            color = IosOrange,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "在微信或游戏中响铃时，需要此权限才能在最顶层规律闪烁。点击此处立即开启。",
+                                            color = IosTextSecondary,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
                             IosDivider()
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(

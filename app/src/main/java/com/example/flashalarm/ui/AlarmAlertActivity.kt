@@ -105,6 +105,11 @@ class AlarmAlertActivity : AppCompatActivity() {
         startAutoDismissTimer()
     }
 
+    override fun onResume() {
+        super.onResume()
+        AlarmService.dismissOverlay()
+    }
+
     private fun setupLockScreenFlags() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
