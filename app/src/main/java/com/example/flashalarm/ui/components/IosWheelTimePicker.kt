@@ -137,7 +137,7 @@ private fun WheelColumn(
         modifier = modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        items(items.size) { index ->
+        items(count = items.size) { index ->
             val value = items[index]
             val isSelected = value == selectedItem
             val formatted = String.format("%02d", value)

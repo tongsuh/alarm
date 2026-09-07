@@ -186,7 +186,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         tvHint = TextView(this).apply {
             text = "轻触屏幕任意位置关闭"
             textSize = 18f
-            setTextColor(Color.WHITE.copy(0.7f))
+            setTextColor(Color.argb(180, 255, 255, 255))
             gravity = Gravity.CENTER
         }
 

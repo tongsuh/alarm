@@ -109,7 +109,7 @@ fun AlarmListScreen(
                         onToggle = { onToggleAlarm(alarm, it) },
                         onClick = { onEditAlarm(alarm) }
                     )
-                    Divider(color = IosSeparator.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    HorizontalDivider(color = IosSeparator.copy(alpha = 0.5f), thickness = 0.5.dp)
                 }
             }
         }

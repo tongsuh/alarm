@@ -408,7 +408,7 @@ fun IosGroupCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 fun IosDivider() {
-    Divider(
+    HorizontalDivider(
         color = IosSeparator,
         thickness = 0.5.dp,
         modifier = Modifier.padding(start = 16.dp)
