@@ -7,7 +7,7 @@ import org.json.JSONObject
  * 亮屏参数模板实体
  *
  * @property id 唯一 ID
- * @property name 模板名称 (例如: "暖阳日出", "应急爆闪")
+ * @property name 模板名称
  * @property targetColorHex 颜色 Hex (#RRGGBB)
  * @property targetBrightness 目标窗口背光亮度 (0.1f ~ 1.0f)
  * @property onDurationMs 亮状态持续毫秒数
@@ -17,7 +17,7 @@ import org.json.JSONObject
 data class FlashProfile(
     val id: String,
     val name: String,
-    val targetColorHex: String = "#FFFFFF",
+    val targetColorHex: String = "#FF1A00",
     val targetBrightness: Float = 1.0f,
     val onDurationMs: Long = 1500L,
     val offDurationMs: Long = 1000L,
@@ -27,7 +27,7 @@ data class FlashProfile(
         get() = try {
             Color.parseColor(targetColorHex)
         } catch (e: Exception) {
-            Color.WHITE
+            Color.parseColor("#FF1A00")
         }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -44,11 +44,22 @@ data class FlashProfile(
         fun fromJson(json: JSONObject): FlashProfile = FlashProfile(
             id = json.getString("id"),
             name = json.getString("name"),
-            targetColorHex = json.optString("targetColorHex", "#FFFFFF"),
+            targetColorHex = json.optString("targetColorHex", "#FF1A00"),
             targetBrightness = json.optDouble("targetBrightness", 1.0).toFloat(),
             onDurationMs = json.optLong("onDurationMs", 1500L),
             offDurationMs = json.optLong("offDurationMs", 1000L),
             totalDurationCircle = json.optInt("totalDurationCircle", 10)
+        )
+
+        // Apple Watch 夜间照明专用深红（波长保护夜间暗视力）
+        val PRESET_APPLE_WATCH_RED = FlashProfile(
+            id = "preset_apple_watch_red",
+            name = "Apple Watch 夜间深红",
+            targetColorHex = "#FF1A00",
+            targetBrightness = 0.85f,
+            onDurationMs = 2000L,
+            offDurationMs = 1000L,
+            totalDurationCircle = 15
         )
 
         val PRESET_SUNRISE = FlashProfile(
@@ -66,19 +77,9 @@ data class FlashProfile(
             name = "强力白光爆闪",
             targetColorHex = "#FFFFFF", // 冷白
             targetBrightness = 1.0f,
-            onDurationMs = 600L,
-            offDurationMs = 400L,
+            onDurationMs = 500L,
+            offDurationMs = 500L,
             totalDurationCircle = 25
-        )
-
-        val PRESET_GENTLE_CYAN = FlashProfile(
-            id = "preset_cyan",
-            name = "柔和青蓝",
-            targetColorHex = "#00E5FF", // 青蓝
-            targetBrightness = 0.6f,
-            onDurationMs = 2000L,
-            offDurationMs = 1500L,
-            totalDurationCircle = 12
         )
     }
 }

@@ -2,14 +2,21 @@ package com.example.flashalarm.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// iOS Clock 经典纯黑深色调
+val IosBackground = Color(0xFF000000)
+val IosCardSurface = Color(0xFF1C1C1E)
+val IosCardSurfaceVariant = Color(0xFF2C2C2E)
+val IosSeparator = Color(0xFF38383A)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// iOS 闹钟标志性亮橙色
+val IosOrange = Color(0xFFFF9F0A)
+val IosOrangeDark = Color(0xFFD67F00)
 
-val DarkBackground = Color(0xFF121212)
-val DarkSurface = Color(0xFF1E1E1E)
-val PrimaryAccent = Color(0xFFFFB74D)
+// Apple Watch 夜间照明专用深红 (保护视网膜暗视力)
+val AppleWatchNightRed = Color(0xFFFF1A00)
+
+// 文字阶梯色
+val IosTextPrimary = Color(0xFFFFFFFF)
+val IosTextSecondary = Color(0xFF8E8E93)
+val IosTextTertiary = Color(0xFF48484A)
+val IosGreen = Color(0xFF30D158)

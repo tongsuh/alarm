@@ -1,46 +1,32 @@
 package com.example.flashalarm.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryAccent,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
-    background = DarkBackground,
-    surface = DarkSurface
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = PrimaryAccent,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+private val IosDarkColorScheme = darkColorScheme(
+    primary = IosOrange,
+    onPrimary = IosBackground,
+    primaryContainer = IosOrangeDark,
+    onPrimaryContainer = IosTextPrimary,
+    secondary = IosTextSecondary,
+    onSecondary = IosTextPrimary,
+    background = IosBackground,
+    onBackground = IosTextPrimary,
+    surface = IosCardSurface,
+    onSurface = IosTextPrimary,
+    surfaceVariant = IosCardSurfaceVariant,
+    onSurfaceVariant = IosTextSecondary,
+    outline = IosSeparator
 )
 
 @Composable
 fun FlashAlarmTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
+    // 强制采用 iOS 闹钟沉浸黑夜主题
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = IosDarkColorScheme,
         content = content
     )
 }

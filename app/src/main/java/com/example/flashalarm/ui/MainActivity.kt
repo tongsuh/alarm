@@ -1,11 +1,13 @@
 package com.example.flashalarm.ui
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,7 +17,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -29,16 +30,46 @@ import com.example.flashalarm.ui.screens.AlarmEditDialog
 import com.example.flashalarm.ui.screens.AlarmListScreen
 import com.example.flashalarm.ui.screens.FlashProfileManageDialog
 import com.example.flashalarm.ui.theme.FlashAlarmTheme
+import com.example.flashalarm.ui.theme.IosBackground
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmRepo: AlarmRepository
     private lateinit var profileRepo: FlashProfileRepository
 
+    // 当前选中的自定义音频状态
+    private var selectedAudioUriState by mutableStateOf<String?>(null)
+    private var selectedAudioTitleState by mutableStateOf("默认闹钟铃声")
+
+    // 系统铃声与本地音乐选择器回调
+    private val ringtonePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val uri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                }
+
+                if (uri != null) {
+                    val ringtone = RingtoneManager.getRingtone(this, uri)
+                    val title = try {
+                        ringtone.getTitle(this) ?: "已选音频"
+                    } catch (e: Exception) {
+                        "已选音频"
+                    }
+                    selectedAudioUriState = uri.toString()
+                    selectedAudioTitleState = title
+                }
+            }
+        }
+
+    // 通知权限申请回调
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (!isGranted) {
-                Toast.makeText(this, "需要通知权限以便在锁屏上唤醒闹钟", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "开启通知权限以确保锁屏点亮", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -54,7 +85,7 @@ class MainActivity : ComponentActivity() {
             FlashAlarmTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = IosBackground
                 ) {
                     var alarms by remember { mutableStateOf(alarmRepo.getAllAlarms()) }
                     var profiles by remember { mutableStateOf(profileRepo.getAllProfiles()) }
@@ -83,21 +114,25 @@ class MainActivity : ComponentActivity() {
                         },
                         onEditAlarm = { alarm ->
                             editingAlarm = alarm
+                            selectedAudioUriState = alarm.ringtoneUri
+                            selectedAudioTitleState = alarm.ringtoneTitle
                             isEditDialogOpen = true
                         },
                         onAddNewAlarm = {
                             editingAlarm = null
+                            selectedAudioUriState = null
+                            selectedAudioTitleState = "默认闹钟铃声"
                             isEditDialogOpen = true
                         },
                         onOpenProfileManager = {
                             isProfileDialogOpen = true
                         },
                         onQuickTest = {
-                            runQuick5SecondTest(profiles.firstOrNull() ?: FlashProfile.PRESET_SUNRISE)
+                            runQuick5SecondTest(profiles.firstOrNull() ?: FlashProfile.PRESET_APPLE_WATCH_RED)
                         }
                     )
 
-                    // 闹钟添加 / 编辑对话框
+                    // 仿 iOS 闹钟添加 / 编辑弹窗
                     if (isEditDialogOpen) {
                         AlarmEditDialog(
                             initialAlarm = editingAlarm,
@@ -109,14 +144,17 @@ class MainActivity : ComponentActivity() {
                                 }
                                 alarms = alarmRepo.getAllAlarms()
                                 isEditDialogOpen = false
-                                Toast.makeText(this@MainActivity, "闹钟已保存并生效", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, "闹钟已存储", Toast.LENGTH_SHORT).show()
                             },
                             onDismiss = { isEditDialogOpen = false },
-                            onOpenProfileManager = { isProfileDialogOpen = true }
+                            onPickAudio = { launchAudioPicker() },
+                            onOpenProfileManager = { isProfileDialogOpen = true },
+                            currentSelectedAudioTitle = selectedAudioTitleState,
+                            currentSelectedAudioUri = selectedAudioUriState
                         )
                     }
 
-                    // 亮屏闪烁模板管理对话框
+                    // 亮屏闪烁模板管理弹窗
                     if (isProfileDialogOpen) {
                         FlashProfileManageDialog(
                             profiles = profiles,
@@ -138,22 +176,45 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 5秒快速测试闹钟（方便立即验证锁屏唤醒与闪烁效果）
+     * 启动系统音频与铃声选择器
+     */
+    private fun launchAudioPicker() {
+        try {
+            val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_RINGTONE)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择闹钟音频或本地音乐")
+                selectedAudioUriState?.let {
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(it))
+                }
+            }
+            ringtonePickerLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "打开音频选择器失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * 5秒快速测试闹钟（方便立即锁屏验证夜视深红与声音效果）
      */
     private fun runQuick5SecondTest(profile: FlashProfile) {
         val testAlarm = AlarmItem(
             id = 999999L,
             hour = 0,
             minute = 0,
-            label = "5秒测试闹钟",
+            label = "5秒快速测试",
             isEnabled = true,
             repeatDays = emptySet(),
+            isSoundEnabled = true,
+            isFlashEnabled = true,
+            ringtoneUri = null,
+            ringtoneTitle = "系统默认铃声",
             autoDismissSec = 30,
             flashProfileId = profile.id
         )
         alarmRepo.saveAlarm(testAlarm)
 
-        // 5 秒后唤醒
         val triggerAt = System.currentTimeMillis() + 5000L
 
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -175,14 +236,10 @@ class MainActivity : ComponentActivity() {
             broadcastPendingIntent
         )
 
-        Toast.makeText(this, "测试闹钟将在 5 秒后触发！请立刻按电源键锁屏测试。", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "已设定测试闹钟，请在 5 秒内锁屏测试！", Toast.LENGTH_LONG).show()
     }
 
-    /**
-     * 适配 Android 12/13/14+ 权限检查
-     */
     private fun checkAndRequestPermissions() {
-        // 1. Android 13+ 通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -191,7 +248,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 2. Android 12+ 精确闹钟权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             if (!alarmManager.canScheduleExactAlarms()) {
@@ -206,7 +262,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 3. Android 14+ 全屏意图权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (!notificationManager.canUseFullScreenIntent()) {

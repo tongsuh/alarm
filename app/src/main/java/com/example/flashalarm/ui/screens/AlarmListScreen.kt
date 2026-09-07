@@ -1,26 +1,28 @@
 package com.example.flashalarm.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flashalarm.model.AlarmItem
 import com.example.flashalarm.model.FlashProfile
+import com.example.flashalarm.ui.theme.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlarmListScreen(
     alarms: List<AlarmItem>,
@@ -33,24 +35,37 @@ fun AlarmListScreen(
     onQuickTest: () -> Unit
 ) {
     Scaffold(
+        containerColor = IosBackground,
         topBar = {
-            TopAppBar(
-                title = { Text("闪烁闹钟") },
-                actions = {
-                    // 快速测试按钮（5秒后触发唤醒，便于验证锁屏与闪烁）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .systemBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "闹钟",
+                    color = IosTextPrimary,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 快速测试按钮
                     IconButton(onClick = onQuickTest) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "测试5秒后闹钟")
+                        Icon(Icons.Default.PlayArrow, contentDescription = "快速测试5秒后闹钟", tint = IosOrange)
                     }
                     // 模板管理
                     IconButton(onClick = onOpenProfileManager) {
-                        Icon(Icons.Default.Palette, contentDescription = "亮屏模板管理")
+                        Icon(Icons.Default.Settings, contentDescription = "闪烁模板设置", tint = IosOrange)
+                    }
+                    // 新建闹钟
+                    IconButton(onClick = onAddNewAlarm) {
+                        Icon(Icons.Default.Add, contentDescription = "添加闹钟", tint = IosOrange, modifier = Modifier.size(30.dp))
                     }
                 }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAddNewAlarm) {
-                Icon(Icons.Default.Add, contentDescription = "添加闹钟")
             }
         }
     ) { paddingValues ->
@@ -63,14 +78,17 @@ fun AlarmListScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "还没有闹钟，点击下方按钮添加",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.Gray
+                        "无闹钟",
+                        fontSize = 24.sp,
+                        color = IosTextSecondary,
+                        fontWeight = FontWeight.Medium
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = onAddNewAlarm) {
-                        Text("添加第一个闹钟")
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "点击右上角 ＋ 添加新闹钟",
+                        fontSize = 15.sp,
+                        color = IosTextTertiary
+                    )
                 }
             }
         } else {
@@ -78,20 +96,20 @@ fun AlarmListScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(alarms, key = { it.id }) { alarm ->
                     val profile = profiles.find { it.id == alarm.flashProfileId }
-                        ?: FlashProfile.PRESET_SUNRISE
+                        ?: FlashProfile.PRESET_APPLE_WATCH_RED
 
-                    AlarmItemCard(
+                    IosAlarmItemRow(
                         alarm = alarm,
                         profile = profile,
                         onToggle = { onToggleAlarm(alarm, it) },
-                        onDelete = { onDeleteAlarm(alarm) },
                         onClick = { onEditAlarm(alarm) }
                     )
+                    Divider(color = IosSeparator.copy(alpha = 0.5f), thickness = 0.5.dp)
                 }
             }
         }
@@ -99,66 +117,75 @@ fun AlarmListScreen(
 }
 
 @Composable
-fun AlarmItemCard(
+fun IosAlarmItemRow(
     alarm: AlarmItem,
     profile: FlashProfile,
     onToggle: (Boolean) -> Unit,
-    onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (alarm.isEnabled) MaterialTheme.colorScheme.surfaceVariant
-            else MaterialTheme.colorScheme.surface
-        )
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = alarm.formattedTime,
-                    fontSize = 38.sp,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = if (alarm.isEnabled) MaterialTheme.colorScheme.onSurface
-                    else Color.Gray
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${alarm.label} · ${alarm.repeatDaysSummary}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (alarm.isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "模板: ${profile.name} · ${alarm.autoDismissSec}秒自动关闭",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            // iOS 风格超大时间
+            Text(
+                text = alarm.formattedTime,
+                fontSize = 56.sp,
+                fontWeight = FontWeight.Light,
+                color = if (alarm.isEnabled) IosTextPrimary else IosTextSecondary
+            )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = alarm.isEnabled,
-                    onCheckedChange = onToggle
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "删除闹钟",
-                        tint = Color.Gray
-                    )
+            // 标签与重复
+            Text(
+                text = "${alarm.label}, ${alarm.repeatDaysSummary}",
+                fontSize = 15.sp,
+                color = if (alarm.isEnabled) IosTextPrimary else IosTextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 状态徽标 (声音、亮屏模式、自动关闭时长)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (alarm.isSoundEnabled) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = IosOrange, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(alarm.ringtoneTitle, fontSize = 12.sp, color = IosTextSecondary, maxLines = 1)
+                    }
+                } else {
+                    Text("[静音]", fontSize = 12.sp, color = IosTextTertiary)
                 }
+
+                if (alarm.isFlashEnabled) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.FlashOn, contentDescription = null, tint = IosOrange, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(profile.name, fontSize = 12.sp, color = IosTextSecondary)
+                    }
+                }
+
+                Text("· ${alarm.autoDismissSummary}", fontSize = 12.sp, color = IosTextTertiary)
             }
         }
+
+        // iOS 经典平滑开关
+        Switch(
+            checked = alarm.isEnabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = IosTextPrimary,
+                checkedTrackColor = IosGreen,
+                uncheckedThumbColor = IosTextSecondary,
+                uncheckedTrackColor = IosCardSurfaceVariant
+            )
+        )
     }
 }

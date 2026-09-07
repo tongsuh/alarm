@@ -11,9 +11,9 @@ class FlashProfileRepository(context: Context) {
         val jsonStr = prefs.getString("saved_profiles", null)
         if (jsonStr == null) {
             val defaults = listOf(
+                FlashProfile.PRESET_APPLE_WATCH_RED,
                 FlashProfile.PRESET_SUNRISE,
-                FlashProfile.PRESET_STROBE,
-                FlashProfile.PRESET_GENTLE_CYAN
+                FlashProfile.PRESET_STROBE
             )
             saveAll(defaults)
             return defaults
@@ -25,17 +25,17 @@ class FlashProfileRepository(context: Context) {
                 list.add(FlashProfile.fromJson(jsonArray.getJSONObject(i)))
             }
             if (list.isEmpty()) {
-                listOf(FlashProfile.PRESET_SUNRISE, FlashProfile.PRESET_STROBE)
+                listOf(FlashProfile.PRESET_APPLE_WATCH_RED, FlashProfile.PRESET_SUNRISE)
             } else {
                 list
             }
         } catch (e: Exception) {
-            listOf(FlashProfile.PRESET_SUNRISE, FlashProfile.PRESET_STROBE)
+            listOf(FlashProfile.PRESET_APPLE_WATCH_RED, FlashProfile.PRESET_SUNRISE)
         }
     }
 
     fun getProfileById(id: String): FlashProfile {
-        return getAllProfiles().find { it.id == id } ?: FlashProfile.PRESET_SUNRISE
+        return getAllProfiles().find { it.id == id } ?: FlashProfile.PRESET_APPLE_WATCH_RED
     }
 
     fun saveProfile(profile: FlashProfile) {

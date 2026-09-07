@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -30,13 +31,16 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 闹钟触发时全屏视觉与声音唤醒 Activity
+ * 闹钟触发时全屏视觉与声音唤醒 Activity (支持声音/亮屏独立勾选、自定义音频、夜间深红)
  */
 class AlarmAlertActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_ALARM_ID = "EXTRA_ALARM_ID"
         const val EXTRA_ALARM_LABEL = "EXTRA_ALARM_LABEL"
+        const val EXTRA_IS_SOUND_ENABLED = "EXTRA_IS_SOUND_ENABLED"
+        const val EXTRA_IS_FLASH_ENABLED = "EXTRA_IS_FLASH_ENABLED"
+        const val EXTRA_RINGTONE_URI = "EXTRA_RINGTONE_URI"
         const val EXTRA_TARGET_COLOR_HEX = "EXTRA_TARGET_COLOR_HEX"
         const val EXTRA_TARGET_BRIGHTNESS = "EXTRA_TARGET_BRIGHTNESS"
         const val EXTRA_ON_DURATION_MS = "EXTRA_ON_DURATION_MS"
@@ -45,17 +49,20 @@ class AlarmAlertActivity : AppCompatActivity() {
         const val EXTRA_AUTO_DISMISS_SEC = "EXTRA_AUTO_DISMISS_SEC"
     }
 
-    // 参数
+    // 参数配置
     private var alarmId: Long = -1L
-    private var alarmLabel: String = "起床闹钟"
-    private var targetColor: Int = Color.WHITE
-    private var targetBrightness: Float = 1.0f
+    private var alarmLabel: String = "闹钟"
+    private var isSoundEnabled: Boolean = true
+    private var isFlashEnabled: Boolean = true
+    private var ringtoneUriStr: String? = null
+    private var targetColor: Int = Color.parseColor("#FF1A00") // 默认 Apple Watch 夜间深红
+    private var targetBrightness: Float = 0.85f
     private var onDurationMs: Long = 1500L
     private var offDurationMs: Long = 1000L
-    private var totalDurationCircle: Int = 10
+    private var totalDurationCircle: Int = 15
     private var autoDismissSec: Int = 60
 
-    // 控件与协程
+    // 控件与任务
     private lateinit var rootContainer: FrameLayout
     private lateinit var tvLabel: TextView
     private lateinit var tvTime: TextView
@@ -76,8 +83,22 @@ class AlarmAlertActivity : AppCompatActivity() {
         buildViewHierarchy()
         hideSystemUI()
 
-        startAudioAndVibration()
-        startFlashingLoop()
+        // 1. 声音控制：勾选声音才播放
+        if (isSoundEnabled) {
+            startAudio()
+        }
+        startVibration()
+
+        // 2. 亮屏控制：勾选亮屏才触发循环闪烁；未勾选则保持深黑静止
+        if (isFlashEnabled) {
+            startFlashingLoop()
+        } else {
+            // 纯声音模式下，保持全黑暗视力背景，不闪烁
+            rootContainer.setBackgroundColor(Color.BLACK)
+            infoPanel.visibility = View.VISIBLE
+        }
+
+        // 3. 自动停止倒计时
         startAutoDismissTimer()
     }
 
@@ -100,17 +121,22 @@ class AlarmAlertActivity : AppCompatActivity() {
 
     private fun parseParameters() {
         alarmId = intent.getLongExtra(EXTRA_ALARM_ID, -1L)
-        alarmLabel = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "起床闹钟"
-        val hex = intent.getStringExtra(EXTRA_TARGET_COLOR_HEX) ?: "#FFFFFF"
+        alarmLabel = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "闹钟"
+        isSoundEnabled = intent.getBooleanExtra(EXTRA_IS_SOUND_ENABLED, true)
+        isFlashEnabled = intent.getBooleanExtra(EXTRA_IS_FLASH_ENABLED, true)
+        ringtoneUriStr = intent.getStringExtra(EXTRA_RINGTONE_URI)
+
+        val hex = intent.getStringExtra(EXTRA_TARGET_COLOR_HEX) ?: "#FF1A00"
         targetColor = try {
             Color.parseColor(hex)
         } catch (e: Exception) {
-            Color.WHITE
+            Color.parseColor("#FF1A00")
         }
-        targetBrightness = intent.getFloatExtra(EXTRA_TARGET_BRIGHTNESS, 1.0f).coerceIn(0.1f, 1.0f)
+
+        targetBrightness = intent.getFloatExtra(EXTRA_TARGET_BRIGHTNESS, 0.85f).coerceIn(0.1f, 1.0f)
         onDurationMs = intent.getLongExtra(EXTRA_ON_DURATION_MS, 1500L).coerceAtLeast(100L)
         offDurationMs = intent.getLongExtra(EXTRA_OFF_DURATION_MS, 1000L).coerceAtLeast(100L)
-        totalDurationCircle = intent.getIntExtra(EXTRA_TOTAL_DURATION_CIRCLE, 10)
+        totalDurationCircle = intent.getIntExtra(EXTRA_TOTAL_DURATION_CIRCLE, 15)
         autoDismissSec = intent.getIntExtra(EXTRA_AUTO_DISMISS_SEC, 60)
     }
 
@@ -118,7 +144,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         rootContainer = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             setOnClickListener {
-                dismissAlarm("用户点击屏幕")
+                dismissAlarm("轻触屏幕关闭")
             }
         }
 
@@ -135,32 +161,32 @@ class AlarmAlertActivity : AppCompatActivity() {
 
         tvLabel = TextView(this).apply {
             text = alarmLabel
-            textSize = 24f
-            setTextColor(Color.DKGRAY)
+            textSize = 26f
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
         }
 
         tvTime = TextView(this).apply {
             val now = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
             text = now
-            textSize = 64f
-            setTextColor(Color.BLACK)
+            textSize = 72f
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(0, 16, 0, 16)
+            setPadding(0, 12, 0, 12)
         }
 
         tvAutoDismiss = TextView(this).apply {
-            text = if (autoDismissSec > 0) "将在 ${autoDismissSec} 秒后自动关闭" else ""
-            textSize = 16f
-            setTextColor(Color.DKGRAY)
+            text = if (autoDismissSec > 0) "将在 ${autoDismissSec} 秒后自动停止" else ""
+            textSize = 15f
+            setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 32)
+            setPadding(0, 4, 0, 36)
         }
 
         tvHint = TextView(this).apply {
-            text = "轻触屏幕任意位置关闭闹钟"
+            text = "轻触屏幕任意位置关闭"
             textSize = 18f
-            setTextColor(Color.GRAY)
+            setTextColor(Color.WHITE.copy(0.7f))
             gravity = Gravity.CENTER
         }
 
@@ -173,19 +199,16 @@ class AlarmAlertActivity : AppCompatActivity() {
         setContentView(rootContainer)
     }
 
-    /**
-     * 全局拦截触屏，轻触任意位置直接关闭
-     */
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
         if (ev?.action == MotionEvent.ACTION_DOWN) {
-            dismissAlarm("用户触控屏幕")
+            dismissAlarm("轻触屏幕关闭")
             return true
         }
         return super.dispatchTouchEvent(ev)
     }
 
     /**
-     * 协程实现亮/灭循环节奏
+     * 协程动态切换背光与夜视深红色
      */
     private fun startFlashingLoop() {
         flashJob = lifecycleScope.launch {
@@ -195,7 +218,7 @@ class AlarmAlertActivity : AppCompatActivity() {
             while (isActive && (isInfinite || cycle < totalDurationCircle)) {
                 cycle++
 
-                // ====== 亮状态 ======
+                // ====== 亮状态 (设定颜色 + 目标背光) ======
                 applyScreenState(
                     color = targetColor,
                     brightness = targetBrightness,
@@ -205,7 +228,7 @@ class AlarmAlertActivity : AppCompatActivity() {
 
                 if (!isActive) break
 
-                // ====== 灭状态 (全黑 + 0.01f 物理背光) ======
+                // ====== 灭状态 (纯黑 + 0.01f 最低物理背光) ======
                 applyScreenState(
                     color = Color.BLACK,
                     brightness = 0.01f,
@@ -214,10 +237,10 @@ class AlarmAlertActivity : AppCompatActivity() {
                 delay(offDurationMs)
             }
 
-            // 循环结束后保持亮态
+            // 循环结束后保持常亮
             if (isActive) {
                 applyScreenState(color = targetColor, brightness = targetBrightness, showContent = true)
-                tvHint.text = "循环闪烁结束，轻触屏幕关闭"
+                tvHint.text = "轻触屏幕任意位置关闭"
             }
         }
     }
@@ -239,7 +262,7 @@ class AlarmAlertActivity : AppCompatActivity() {
             while (isActive && remain > 0) {
                 delay(1000L)
                 remain--
-                tvAutoDismiss.text = "将在 ${remain} 秒后自动关闭"
+                tvAutoDismiss.text = "将在 ${remain} 秒后自动停止"
             }
             if (isActive) {
                 dismissAlarm("超时自动关闭")
@@ -247,13 +270,20 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
     }
 
-    private fun startAudioAndVibration() {
+    /**
+     * 播放自定义或系统音频
+     */
+    private fun startAudio() {
         try {
-            val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val audioUri = if (!ringtoneUriStr.isNullOrBlank()) {
+                Uri.parse(ringtoneUriStr)
+            } else {
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            }
 
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(this@AlarmAlertActivity, alertUri)
+                setDataSource(this@AlarmAlertActivity, audioUri)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -265,9 +295,28 @@ class AlarmAlertActivity : AppCompatActivity() {
                 start()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            // 如果自定义文件失效，安全降级回系统默认铃声
+            try {
+                val fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(this@AlarmAlertActivity, fallbackUri)
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
         }
+    }
 
+    private fun startVibration() {
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             manager.defaultVibrator
@@ -277,10 +326,10 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 400), 0))
+            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 500), 0))
         } else {
             @Suppress("DEPRECATION")
-            vibrator?.vibrate(longArrayOf(0, 800, 400), 0)
+            vibrator?.vibrate(longArrayOf(0, 800, 500), 0)
         }
     }
 
@@ -298,7 +347,6 @@ class AlarmAlertActivity : AppCompatActivity() {
         autoDismissJob?.cancel()
         autoDismissJob = null
 
-        // 恢复系统默认背光
         val lp = window.attributes
         lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = lp
