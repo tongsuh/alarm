@@ -373,6 +373,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (alarmId != -1L) {
             nm.cancel(alarmId.toInt())
+            nm.cancel((alarmId.toInt() and 0x7FFFFFFF) + 88888)
         }
 
         finishAndRemoveTask()

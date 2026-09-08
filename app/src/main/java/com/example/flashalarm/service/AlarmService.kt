@@ -1,6 +1,7 @@
 package com.example.flashalarm.service
 
 import android.app.ActivityOptions
+import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -64,6 +65,8 @@ class AlarmService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var vibrationStopHandler: Handler? = null
+    private var currentWearableNotificationId: Int = -1
+    private var wearablePulseJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var autoStopHandler: Handler? = null
 
@@ -150,18 +153,43 @@ class AlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 2. 前台常驻通知 (设置对应震动波形以联动华为手环同步震动)
-        val notification = NotificationCompat.Builder(this, FlashAlarmApp.ALARM_CHANNEL_ID)
+        // 2. 前台服务保活常驻通知 (静默常驻，防止系统杀后台，手环不感知)
+        val keepaliveNotification = NotificationCompat.Builder(this, FlashAlarmApp.SERVICE_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("闪烁闹钟")
+            .setContentText("闹钟正在运行中")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                alarmId.toInt().coerceAtLeast(1),
+                keepaliveNotification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(alarmId.toInt().coerceAtLeast(1), keepaliveNotification)
+        }
+
+        // 3. 穿戴手环与高优先级告警通知 (核心关键：setOngoing(false) 非常驻通知，确保华为手环/智能手表 100% 捕获并震动)
+        val wearableNotificationId = (alarmId.toInt() and 0x7FFFFFFF) + 88888
+        currentWearableNotificationId = wearableNotificationId
+
+        val wearableNotification = NotificationCompat.Builder(this, FlashAlarmApp.WEARABLE_ALERT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
-            .setContentText("正在响铃，点击进入全屏或点击关闭")
+            .setContentText("闹钟正在响铃，点击查看或关闭")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "关闭闹钟", stopPendingIntent)
-            .setOngoing(true)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
             .apply {
                 if (isVibrationEnabled) {
                     setVibrate(patternType.pattern)
@@ -171,22 +199,24 @@ class AlarmService : Service() {
             }
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                alarmId.toInt().coerceAtLeast(1),
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(alarmId.toInt().coerceAtLeast(1), notification)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            notificationManager.notify(wearableNotificationId, wearableNotification)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
-        // 3. 播放音乐与独立时长震动
+        // 4. 播放音乐与独立时长震动 (联动手机硬件马达与手环脉冲)
         if (isSoundEnabled) {
             playRingtone(ringtoneUriStr)
         }
         if (isVibrationEnabled && vibrationDurationSec > 0) {
-            startVibration(patternType.pattern, vibrationDurationSec)
+            startVibration(
+                pattern = patternType.pattern,
+                durationSec = vibrationDurationSec,
+                wearableNotificationId = wearableNotificationId,
+                wearableNotification = wearableNotification
+            )
         }
 
         // 4. 关键突破：如果在其他应用界面，直接通过 WindowManager 在屏幕最顶层挂载全屏遮罩闪烁！
@@ -432,7 +462,12 @@ class AlarmService : Service() {
         }
     }
 
-    private fun startVibration(pattern: LongArray, durationSec: Int) {
+    private fun startVibration(
+        pattern: LongArray,
+        durationSec: Int,
+        wearableNotificationId: Int,
+        wearableNotification: Notification
+    ) {
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             manager.defaultVibrator
@@ -452,7 +487,28 @@ class AlarmService : Service() {
             e.printStackTrace()
         }
 
-        // 独立震动停止计时器：震动 durationSec 秒后自动停止震动，而不影响响铃和亮屏继续执行！
+        // 穿戴设备持续震动脉冲：每 2.5 秒重发一次高优先级告警通知，确保手环持续响应设定的震动时长
+        wearablePulseJob?.cancel()
+        wearablePulseJob = serviceScope.launch {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val startTime = System.currentTimeMillis()
+            val totalMs = durationSec * 1000L
+
+            while (isActive && (System.currentTimeMillis() - startTime) < totalMs) {
+                delay(2500L)
+                if (!isActive) break
+                try {
+                    nm.notify(wearableNotificationId, wearableNotification)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // 达到设定震动时长后，自动停止震动与手环脉冲
+            stopVibrationOnly()
+        }
+
+        // 独立震动停止超时保护
         vibrationStopHandler?.removeCallbacksAndMessages(null)
         vibrationStopHandler = Handler(Looper.getMainLooper()).apply {
             postDelayed({
@@ -462,13 +518,27 @@ class AlarmService : Service() {
     }
 
     private fun stopVibrationOnly() {
+        wearablePulseJob?.cancel()
+        wearablePulseJob = null
+
         vibrationStopHandler?.removeCallbacksAndMessages(null)
         vibrationStopHandler = null
+
         try {
             vibrator?.cancel()
             vibrator = null
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        // 移除手环告警通知
+        if (currentWearableNotificationId != -1) {
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.cancel(currentWearableNotificationId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
