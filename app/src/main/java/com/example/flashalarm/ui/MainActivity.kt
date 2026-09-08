@@ -287,13 +287,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 运行完整总循环时长的亮屏测试
+     * 运行固定10秒时长的亮屏效果测试
      */
     private fun runProfilePreviewTest(profile: FlashProfile) {
-        val totalSec = ((profile.totalDurationCircle * (profile.onDurationMs + profile.offDurationMs)) / 1000L).toInt() + 2
         val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             putExtra(AlarmAlertActivity.EXTRA_ALARM_ID, 888888L)
-            putExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL, "效果测试")
+            putExtra(AlarmAlertActivity.EXTRA_ALARM_LABEL, "亮屏效果测试")
             putExtra(AlarmAlertActivity.EXTRA_IS_SOUND_ENABLED, false)
             putExtra(AlarmAlertActivity.EXTRA_IS_FLASH_ENABLED, true)
             putExtra(AlarmAlertActivity.EXTRA_IS_PREVIEW_MODE, true)
@@ -301,8 +300,7 @@ class MainActivity : ComponentActivity() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle)
-            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, totalSec.coerceAtLeast(5))
+            putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 10)
         }
         startActivity(alertIntent)
     }

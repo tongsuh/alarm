@@ -48,9 +48,11 @@ class AlarmAlertActivity : AppCompatActivity() {
         const val EXTRA_TARGET_BRIGHTNESS = "EXTRA_TARGET_BRIGHTNESS"
         const val EXTRA_ON_DURATION_MS = "EXTRA_ON_DURATION_MS"
         const val EXTRA_OFF_DURATION_MS = "EXTRA_OFF_DURATION_MS"
-        const val EXTRA_TOTAL_DURATION_CIRCLE = "EXTRA_TOTAL_DURATION_CIRCLE"
         const val EXTRA_AUTO_DISMISS_SEC = "EXTRA_AUTO_DISMISS_SEC"
         const val EXTRA_IS_PREVIEW_MODE = "EXTRA_IS_PREVIEW_MODE"
+        const val EXTRA_IS_VIBRATION_ENABLED = "EXTRA_IS_VIBRATION_ENABLED"
+        const val EXTRA_VIBRATION_DURATION_SEC = "EXTRA_VIBRATION_DURATION_SEC"
+        const val EXTRA_VIBRATION_PATTERN_ID = "EXTRA_VIBRATION_PATTERN_ID"
     }
 
     private var alarmId: Long = -1L
@@ -63,9 +65,8 @@ class AlarmAlertActivity : AppCompatActivity() {
     private var targetBrightness: Float = 0.85f
     private var onDurationMs: Long = 1500L
     private var offDurationMs: Long = 1000L
-    private var totalDurationCircle: Int = 15
-    private var autoDismissSec: Int = 60
-    private var effectiveTotalDurationSec: Int = 60
+    private var autoDismissSec: Int = 30
+    private var effectiveTotalDurationSec: Int = 30
 
     private lateinit var rootContainer: FrameLayout
     private lateinit var tvLabel: TextView
@@ -114,14 +115,11 @@ class AlarmAlertActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -145,24 +143,13 @@ class AlarmAlertActivity : AppCompatActivity() {
         targetBrightness = intent.getFloatExtra(EXTRA_TARGET_BRIGHTNESS, 0.85f).coerceIn(0.1f, 1.0f)
         onDurationMs = intent.getLongExtra(EXTRA_ON_DURATION_MS, 1500L).coerceAtLeast(100L)
         offDurationMs = intent.getLongExtra(EXTRA_OFF_DURATION_MS, 1000L).coerceAtLeast(100L)
-        totalDurationCircle = intent.getIntExtra(EXTRA_TOTAL_DURATION_CIRCLE, 15)
-        autoDismissSec = intent.getIntExtra(EXTRA_AUTO_DISMISS_SEC, 60)
+        autoDismissSec = intent.getIntExtra(EXTRA_AUTO_DISMISS_SEC, 30)
 
-        val flashCycleTotalSec = if (totalDurationCircle > 0) {
-            ((totalDurationCircle * (onDurationMs + offDurationMs)) / 1000L).toInt()
-        } else {
-            autoDismissSec
-        }
-
-        // 特性 1: 预览测试运行完整总循环时长，而不再只跑一次循环
+        // 闪烁总时长由响铃自动停止时长统一决定，测试模式固定 10 秒
         effectiveTotalDurationSec = if (isPreviewMode) {
-            flashCycleTotalSec.coerceAtLeast(3)
-        } else if (isSoundEnabled && isFlashEnabled) {
-            maxOf(autoDismissSec, flashCycleTotalSec)
-        } else if (isFlashEnabled) {
-            maxOf(autoDismissSec, flashCycleTotalSec)
+            10
         } else {
-            autoDismissSec
+            autoDismissSec.coerceAtLeast(5)
         }
     }
 
@@ -186,7 +173,7 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvLabel = TextView(this).apply {
-            text = if (isPreviewMode) "全循环效果测试" else alarmLabel
+            text = if (isPreviewMode) "效果测试 (10秒)" else alarmLabel
             textSize = 26f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -202,7 +189,10 @@ class AlarmAlertActivity : AppCompatActivity() {
         }
 
         tvAutoDismiss = TextView(this).apply {
-            text = if (effectiveTotalDurationSec > 0 && !isPreviewMode) "将在 ${effectiveTotalDurationSec} 秒后自动停止" else ""
+            text = if (effectiveTotalDurationSec > 0) {
+                if (isPreviewMode) "测试将在 ${effectiveTotalDurationSec} 秒后自动结束"
+                else "将在 ${effectiveTotalDurationSec} 秒后自动停止"
+            } else ""
             textSize = 15f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -235,15 +225,11 @@ class AlarmAlertActivity : AppCompatActivity() {
 
     /**
      * 持续规律闪烁循环（含平滑渐黑）
+     * 循环直至自动停止时间到达或用户点击屏幕关闭
      */
     private fun startContinuousFlashingLoop() {
         flashJob = lifecycleScope.launch {
-            var cycle = 0
-            val maxCycles = if (isPreviewMode) totalDurationCircle.coerceAtLeast(1) else Int.MAX_VALUE
-
-            while (isActive && cycle < maxCycles) {
-                cycle++
-
+            while (isActive) {
                 // ====== 亮状态 ======
                 applyScreenState(
                     color = targetColor,
@@ -262,10 +248,6 @@ class AlarmAlertActivity : AppCompatActivity() {
 
                 // ====== 灭状态保持 ======
                 delay(offDurationMs)
-            }
-
-            if (isActive && isPreviewMode) {
-                dismissAlarm("测试总循环结束")
             }
         }
     }
@@ -323,10 +305,11 @@ class AlarmAlertActivity : AppCompatActivity() {
             while (isActive && remain > 0) {
                 delay(1000L)
                 remain--
-                tvAutoDismiss.text = "将在 ${remain} 秒后自动停止"
+                tvAutoDismiss.text = if (isPreviewMode) "测试将在 ${remain} 秒后自动结束"
+                                     else "将在 ${remain} 秒后自动停止"
             }
             if (isActive) {
-                dismissAlarm("自动停止")
+                dismissAlarm(if (isPreviewMode) "测试结束" else "自动停止")
             }
         }
     }

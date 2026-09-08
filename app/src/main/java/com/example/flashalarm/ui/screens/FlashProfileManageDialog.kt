@@ -42,13 +42,12 @@ fun FlashProfileManageDialog(
     var isFormOpen by remember { mutableStateOf(false) }
     var editingProfileId by remember { mutableStateOf<String?>(null) }
 
-    // 表单状态
+    // 表单状态 (亮灭时间单位为秒，去除总循环参数)
     var name by remember { mutableStateOf("") }
     var colorHex by remember { mutableStateOf("#FF1A00") }
     var brightness by remember { mutableStateOf(0.85f) }
-    var onDurationMs by remember { mutableStateOf("1500") }
-    var offDurationMs by remember { mutableStateOf("1000") }
-    var totalCycles by remember { mutableStateOf("15") }
+    var onDurationSecStr by remember { mutableStateOf("1.5") }
+    var offDurationSecStr by remember { mutableStateOf("1.0") }
 
     val presetColors = listOf(
         "#FF1A00" to "AppleWatch夜视红",
@@ -64,9 +63,8 @@ fun FlashProfileManageDialog(
         name = "自定义模板 ${profiles.size + 1}"
         colorHex = "#FF1A00"
         brightness = 0.85f
-        onDurationMs = "1500"
-        offDurationMs = "1000"
-        totalCycles = "15"
+        onDurationSecStr = "1.5"
+        offDurationSecStr = "1.0"
         isFormOpen = true
     }
 
@@ -75,21 +73,21 @@ fun FlashProfileManageDialog(
         name = profile.name
         colorHex = profile.targetColorHex
         brightness = profile.targetBrightness
-        onDurationMs = profile.onDurationMs.toString()
-        offDurationMs = profile.offDurationMs.toString()
-        totalCycles = profile.totalDurationCircle.toString()
+        onDurationSecStr = profile.onDurationSec.toString()
+        offDurationSecStr = profile.offDurationSec.toString()
         isFormOpen = true
     }
 
     fun getCurrentFormProfile(): FlashProfile {
+        val onSec = onDurationSecStr.toFloatOrNull()?.coerceAtLeast(0.1f) ?: 1.5f
+        val offSec = offDurationSecStr.toFloatOrNull()?.coerceAtLeast(0.1f) ?: 1.0f
         return FlashProfile(
             id = editingProfileId ?: UUID.randomUUID().toString(),
             name = name.ifBlank { "亮屏模板" },
             targetColorHex = colorHex,
             targetBrightness = brightness,
-            onDurationMs = onDurationMs.toLongOrNull() ?: 1500L,
-            offDurationMs = offDurationMs.toLongOrNull() ?: 1000L,
-            totalDurationCircle = totalCycles.toIntOrNull() ?: 15
+            onDurationSec = onSec,
+            offDurationSec = offSec
         )
     }
 
@@ -151,34 +149,37 @@ fun FlashProfileManageDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
-                        // 1. 测试按钮 (特性 5: 跑一个循环的亮屏测试)
+                        // 1. 快速效果测试按钮 (固定10秒全流程测试)
                         Button(
                             onClick = { onTestProfile(getCurrentFormProfile()) },
-                            colors = ButtonDefaults.buttonColors(containerColor = IosOrange.copy(alpha = 0.15f)),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, IosOrange),
+                            colors = ButtonDefaults.buttonColors(containerColor = IosCardSurfaceVariant),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = IosOrange)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("测试此效果 (运行全部循环时长)", color = IosOrange, fontWeight = FontWeight.Bold)
+                            Text("测试此效果 (10秒)", color = IosOrange, fontWeight = FontWeight.Bold)
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         // 模板名称
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("模板名称", color = IosTextSecondary, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedTextField(
                                     value = name,
                                     onValueChange = { name = it },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = IosTextPrimary,
                                         unfocusedTextColor = IosTextPrimary,
-                                        focusedBorderColor = Color.Transparent,
-                                        unfocusedBorderColor = Color.Transparent
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent
                                     ),
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true
@@ -186,26 +187,29 @@ fun FlashProfileManageDialog(
                             }
                         }
 
-                        // 色彩选择 (含 Apple Watch 夜视深红)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 颜色挑选
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("选择色彩（夜间强烈推荐 Apple Watch 深红）", color = IosTextSecondary, fontSize = 13.sp)
+                                Text("闪烁发光颜色", color = IosTextSecondary, fontSize = 13.sp)
                                 Spacer(modifier = Modifier.height(12.dp))
+
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    presetColors.forEach { (hex, _) ->
-                                        val parsedColor = Color(android.graphics.Color.parseColor(hex))
+                                    presetColors.forEach { (hex, colorName) ->
+                                        val c = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { Color.Red }
                                         val isSelected = colorHex.equals(hex, ignoreCase = true)
                                         Box(
                                             modifier = Modifier
-                                                .size(40.dp)
+                                                .size(38.dp)
                                                 .clip(CircleShape)
-                                                .background(parsedColor)
+                                                .background(c)
                                                 .border(
-                                                    width = if (isSelected) 3.5.dp else 1.dp,
-                                                    color = if (isSelected) IosOrange else Color.Gray.copy(alpha = 0.5f),
+                                                    width = if (isSelected) 3.dp else 1.dp,
+                                                    color = if (isSelected) IosOrange else Color.White.copy(alpha = 0.4f),
                                                     shape = CircleShape
                                                 )
                                                 .clickable { colorHex = hex }
@@ -215,6 +219,8 @@ fun FlashProfileManageDialog(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         // 亮度调节
                         IosGroupCard {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -222,7 +228,7 @@ fun FlashProfileManageDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("目标屏幕亮度", color = IosTextPrimary)
+                                    Text("闪烁背光亮度", color = IosTextPrimary, fontSize = 16.sp)
                                     Text("${(brightness * 100).toInt()}%", color = IosOrange, fontWeight = FontWeight.Bold)
                                 }
                                 Slider(
@@ -230,14 +236,16 @@ fun FlashProfileManageDialog(
                                     onValueChange = { brightness = it },
                                     valueRange = 0.1f..1.0f,
                                     colors = SliderDefaults.colors(
-                                        thumbColor = IosOrange,
+                                        thumbColor = IosTextPrimary,
                                         activeTrackColor = IosOrange
                                     )
                                 )
                             }
                         }
 
-                        // 节奏时间
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 节奏时间 (单位为秒，去除了总循环参数)
                         IosGroupCard {
                             Row(
                                 modifier = Modifier
@@ -246,9 +254,9 @@ fun FlashProfileManageDialog(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 OutlinedTextField(
-                                    value = onDurationMs,
-                                    onValueChange = { onDurationMs = it.filter { c -> c.isDigit() } },
-                                    label = { Text("亮屏(ms)") },
+                                    value = onDurationSecStr,
+                                    onValueChange = { onDurationSecStr = it },
+                                    label = { Text("亮屏时间(秒)") },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = IosTextPrimary,
                                         unfocusedTextColor = IosTextPrimary
@@ -256,9 +264,9 @@ fun FlashProfileManageDialog(
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
-                                    value = offDurationMs,
-                                    onValueChange = { offDurationMs = it.filter { c -> c.isDigit() } },
-                                    label = { Text("暗屏(ms)") },
+                                    value = offDurationSecStr,
+                                    onValueChange = { offDurationSecStr = it },
+                                    label = { Text("暗屏时间(秒)") },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = IosTextPrimary,
                                         unfocusedTextColor = IosTextPrimary
@@ -266,19 +274,12 @@ fun FlashProfileManageDialog(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            IosDivider()
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                OutlinedTextField(
-                                    value = totalCycles,
-                                    onValueChange = { totalCycles = it.filter { c -> c.isDigit() } },
-                                    label = { Text("闪烁循环总次数 (0为一直循环)") },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = IosTextPrimary,
-                                        unfocusedTextColor = IosTextPrimary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
+                            Text(
+                                text = "提示：总闪烁时间直接跟随闹钟的【自动停止时长】，在响铃全周期内按此亮灭节奏持续呼吸闪烁。",
+                                color = IosTextSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
@@ -335,7 +336,7 @@ fun FlashProfileManageDialog(
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
-                                                text = "亮${profile.onDurationMs}ms / 灭${profile.offDurationMs}ms · ${profile.totalDurationCircle}次 · 亮度${(profile.targetBrightness * 100).toInt()}%",
+                                                text = "亮${profile.onDurationSec}秒 / 灭${profile.offDurationSec}秒 · 亮度${(profile.targetBrightness * 100).toInt()}%",
                                                 color = IosTextSecondary,
                                                 fontSize = 13.sp
                                             )

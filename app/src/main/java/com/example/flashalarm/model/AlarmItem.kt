@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 闹钟实体类 (含间隔重响、自定义音频持久化与独立声光控制)
+ * 闹钟实体类 (含间隔重响、自定义音频持久化、独立声光控制及手环/手机震动控制)
  *
  * @property id 唯一标识符
  * @property hour 触发小时 (0-23)
@@ -16,12 +16,15 @@ import org.json.JSONObject
  * @property isFlashEnabled 是否开启亮屏闪烁
  * @property ringtoneUri 自定义音频路径 (本地内部存储私有路径或系统 Uri)
  * @property ringtoneTitle 音频显示名称
- * @property autoDismissSec 达到指定时长后自动关闭 (秒)
+ * @property autoDismissSec 达到指定时长后自动关闭 (秒，默认 30 秒)
  * @property flashProfileId 绑定的亮屏闪烁模板 ID
  * @property isIntervalRepeatEnabled 是否开启间隔重响
  * @property intervalRepeatMinutes 间隔时长 (分钟，例如 30 分钟)
  * @property intervalRepeatTimes 重复次数 (例如 2 次)
  * @property currentIntervalIndex 当前处于第几次间隔重响 (0 表示初次响铃)
+ * @property isVibrationEnabled 是否开启手环/手机震动提醒
+ * @property vibrationDurationSec 独立震动持续时长 (秒，例如 15 秒)
+ * @property vibrationPatternId 震动类型 ID (参考 VibrationPatternType)
  */
 data class AlarmItem(
     val id: Long = System.currentTimeMillis(),
@@ -34,12 +37,15 @@ data class AlarmItem(
     val isFlashEnabled: Boolean = true,
     val ringtoneUri: String? = null,
     val ringtoneTitle: String = "默认闹钟铃声",
-    val autoDismissSec: Int = 60,
+    val autoDismissSec: Int = 30,
     val flashProfileId: String = FlashProfile.PRESET_APPLE_WATCH_RED.id,
     val isIntervalRepeatEnabled: Boolean = false,
     val intervalRepeatMinutes: Int = 30,
     val intervalRepeatTimes: Int = 2,
-    val currentIntervalIndex: Int = 0
+    val currentIntervalIndex: Int = 0,
+    val isVibrationEnabled: Boolean = true,
+    val vibrationDurationSec: Int = 15,
+    val vibrationPatternId: String = "strong"
 ) {
     val formattedTime: String
         get() = String.format("%02d:%02d", hour, minute)
@@ -75,6 +81,13 @@ data class AlarmItem(
             return "间隔${intervalRepeatMinutes}分钟，重响${intervalRepeatTimes}次"
         }
 
+    val vibrationSummary: String
+        get() {
+            if (!isVibrationEnabled) return "震动关闭"
+            val typeTitle = VibrationPatternType.fromId(vibrationPatternId).title
+            return "${vibrationDurationSec}秒 · $typeTitle"
+        }
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("hour", hour)
@@ -91,6 +104,9 @@ data class AlarmItem(
         put("intervalRepeatMinutes", intervalRepeatMinutes)
         put("intervalRepeatTimes", intervalRepeatTimes)
         put("currentIntervalIndex", currentIntervalIndex)
+        put("isVibrationEnabled", isVibrationEnabled)
+        put("vibrationDurationSec", vibrationDurationSec)
+        put("vibrationPatternId", vibrationPatternId)
         val daysArray = JSONArray()
         repeatDays.forEach { daysArray.put(it) }
         put("repeatDays", daysArray)
@@ -117,12 +133,15 @@ data class AlarmItem(
                 isFlashEnabled = json.optBoolean("isFlashEnabled", true),
                 ringtoneUri = if (rawUri.isBlank()) null else rawUri,
                 ringtoneTitle = json.optString("ringtoneTitle", "默认闹钟铃声"),
-                autoDismissSec = json.optInt("autoDismissSec", 60),
+                autoDismissSec = json.optInt("autoDismissSec", 30),
                 flashProfileId = json.optString("flashProfileId", FlashProfile.PRESET_APPLE_WATCH_RED.id),
                 isIntervalRepeatEnabled = json.optBoolean("isIntervalRepeatEnabled", false),
                 intervalRepeatMinutes = json.optInt("intervalRepeatMinutes", 30),
                 intervalRepeatTimes = json.optInt("intervalRepeatTimes", 2),
-                currentIntervalIndex = json.optInt("currentIntervalIndex", 0)
+                currentIntervalIndex = json.optInt("currentIntervalIndex", 0),
+                isVibrationEnabled = json.optBoolean("isVibrationEnabled", true),
+                vibrationDurationSec = json.optInt("vibrationDurationSec", 15),
+                vibrationPatternId = json.optString("vibrationPatternId", "strong")
             )
         }
     }

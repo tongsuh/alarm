@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
@@ -30,6 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.flashalarm.model.AlarmItem
 import com.example.flashalarm.model.FlashProfile
+import com.example.flashalarm.model.VibrationPatternType
 import com.example.flashalarm.ui.components.IosWheelTimePicker
 import com.example.flashalarm.ui.theme.*
 import java.util.Calendar
@@ -74,10 +76,15 @@ fun AlarmEditDialog(
         }
     }
 
-    // 自由设置自动停止时长
-    val initialTotalSec = initialAlarm?.autoDismissSec ?: 60
+    // 自由设置自动停止时长 (默认 0 分 30 秒)
+    val initialTotalSec = initialAlarm?.autoDismissSec ?: 30
     var autoDismissMinutes by remember { mutableStateOf((initialTotalSec / 60).toString()) }
     var autoDismissSeconds by remember { mutableStateOf((initialTotalSec % 60).toString()) }
+
+    // 手环与手机震动设置
+    var isVibrationEnabled by remember { mutableStateOf(initialAlarm?.isVibrationEnabled ?: true) }
+    var vibrationDurationSec by remember { mutableStateOf((initialAlarm?.vibrationDurationSec ?: 15).toString()) }
+    var selectedVibrationPatternId by remember { mutableStateOf(initialAlarm?.vibrationPatternId ?: "strong") }
 
     // 特性 3：间隔重响功能 (如间隔30分钟，重复2次)
     var isIntervalRepeatEnabled by remember { mutableStateOf(initialAlarm?.isIntervalRepeatEnabled ?: false) }
@@ -133,12 +140,13 @@ fun AlarmEditDialog(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
-                            val mins = autoDismissMinutes.toIntOrNull() ?: 1
-                            val secs = autoDismissSeconds.toIntOrNull() ?: 0
+                            val mins = autoDismissMinutes.toIntOrNull() ?: 0
+                            val secs = autoDismissSeconds.toIntOrNull() ?: 30
                             val totalSec = (mins * 60 + secs).coerceAtLeast(5)
 
                             val repeatIntervalMins = intervalRepeatMinutes.toIntOrNull() ?: 30
                             val repeatTimes = intervalRepeatTimes.toIntOrNull() ?: 2
+                            val vibSec = vibrationDurationSec.toIntOrNull()?.coerceAtLeast(1) ?: 15
 
                             val finalAlarm = AlarmItem(
                                 id = initialAlarm?.id ?: System.currentTimeMillis(),
@@ -156,7 +164,10 @@ fun AlarmEditDialog(
                                 isIntervalRepeatEnabled = isIntervalRepeatEnabled,
                                 intervalRepeatMinutes = repeatIntervalMins.coerceAtLeast(1),
                                 intervalRepeatTimes = repeatTimes.coerceAtLeast(1),
-                                currentIntervalIndex = 0
+                                currentIntervalIndex = 0,
+                                isVibrationEnabled = isVibrationEnabled,
+                                vibrationDurationSec = vibSec,
+                                vibrationPatternId = selectedVibrationPatternId
                             )
                             onSave(finalAlarm)
                         }
@@ -488,7 +499,7 @@ fun AlarmEditDialog(
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                                 )
                                                 Text(
-                                                    text = "亮${profile.onDurationMs}ms / 灭${profile.offDurationMs}ms · 循环${profile.totalDurationCircle}次",
+                                                    text = "亮${profile.onDurationSec}秒 / 灭${profile.offDurationSec}秒",
                                                     color = IosTextSecondary,
                                                     fontSize = 12.sp
                                                 )
@@ -504,10 +515,110 @@ fun AlarmEditDialog(
                         }
                     }
 
-                    // 6. 自由设置自动停止时长
+                    // 6. 手环与手机震动提醒 (支持华为手环联动)
+                    IosGroupCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Vibration, contentDescription = null, tint = IosOrange)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("手环与手机震动提醒", color = IosTextPrimary, fontSize = 17.sp)
+                                    Text("响铃时联动华为手环与手机同步震动", color = IosTextSecondary, fontSize = 13.sp)
+                                }
+                            }
+                            Switch(
+                                checked = isVibrationEnabled,
+                                onCheckedChange = { isVibrationEnabled = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = IosTextPrimary,
+                                    checkedTrackColor = IosOrange
+                                )
+                            )
+                        }
+
+                        if (isVibrationEnabled) {
+                            IosDivider()
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("震动持续时长", color = IosTextSecondary, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = vibrationDurationSec,
+                                        onValueChange = { vibrationDurationSec = it.filter { ch -> ch.isDigit() } },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = IosTextPrimary,
+                                            unfocusedTextColor = IosTextPrimary,
+                                            focusedContainerColor = IosCardSurfaceVariant,
+                                            unfocusedContainerColor = IosCardSurfaceVariant
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("秒 (独立于闹钟停止时间)", color = IosTextPrimary, fontSize = 14.sp)
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text("选择震动类型", color = IosTextSecondary, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                VibrationPatternType.values().forEach { vType ->
+                                    val isVibSelected = selectedVibrationPatternId == vType.id
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isVibSelected) IosCardSurfaceVariant else Color.Transparent)
+                                            .clickable { selectedVibrationPatternId = vType.id }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = vType.title,
+                                                color = if (isVibSelected) IosOrange else IosTextPrimary,
+                                                fontSize = 15.sp,
+                                                fontWeight = if (isVibSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                            Text(
+                                                text = vType.description,
+                                                color = IosTextSecondary,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        if (isVibSelected) {
+                                            Icon(Icons.Default.Check, contentDescription = "已选择", tint = IosOrange)
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "💡 华为手环同步指引：请在手机的【华为运动健康 App ➡️ 设备 ➡️ 消息通知】中，开启【闪屏闹钟】通知权限，响铃时手环即可同步按设定模式震动提醒。",
+                                    color = IosTextSecondary,
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // 7. 自由设置自动停止时长
                     IosGroupCard {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("未操作自动停止时长", color = IosTextPrimary, fontSize = 17.sp)
+                            Text("自动停止时长", color = IosTextPrimary, fontSize = 17.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 "响铃达到设定时间后自动静音并关闭，防止持续耗电",

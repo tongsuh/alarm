@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import com.example.flashalarm.FlashAlarmApp
+import com.example.flashalarm.model.VibrationPatternType
 import com.example.flashalarm.ui.AlarmAlertActivity
 import kotlinx.coroutines.*
 import java.io.File
@@ -62,6 +63,7 @@ class AlarmService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var vibrationStopHandler: Handler? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var autoStopHandler: Handler? = null
 
@@ -96,8 +98,11 @@ class AlarmService : Service() {
         val targetBrightness = intent.getFloatExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, 0.85f)
         val onDurationMs = intent.getLongExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, 1500L)
         val offDurationMs = intent.getLongExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, 1000L)
-        val totalDurationCircle = intent.getIntExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, 15)
-        val autoDismissSec = intent.getIntExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 60)
+        val autoDismissSec = intent.getIntExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, 30)
+        val isVibrationEnabled = intent.getBooleanExtra(AlarmAlertActivity.EXTRA_IS_VIBRATION_ENABLED, true)
+        val vibrationDurationSec = intent.getIntExtra(AlarmAlertActivity.EXTRA_VIBRATION_DURATION_SEC, 15)
+        val vibrationPatternId = intent.getStringExtra(AlarmAlertActivity.EXTRA_VIBRATION_PATTERN_ID) ?: "strong"
+        val patternType = VibrationPatternType.fromId(vibrationPatternId)
 
         // 1. Android 14+ 关键适配：给 PendingIntent 设置允许后台弹窗的豁免参数
         val bundleOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -121,8 +126,10 @@ class AlarmService : Service() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, totalDurationCircle)
             putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, autoDismissSec)
+            putExtra(AlarmAlertActivity.EXTRA_IS_VIBRATION_ENABLED, isVibrationEnabled)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_DURATION_SEC, vibrationDurationSec)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_PATTERN_ID, vibrationPatternId)
         }
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
@@ -143,7 +150,7 @@ class AlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 2. 前台常驻通知
+        // 2. 前台常驻通知 (设置对应震动波形以联动华为手环同步震动)
         val notification = NotificationCompat.Builder(this, FlashAlarmApp.ALARM_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
@@ -155,6 +162,13 @@ class AlarmService : Service() {
             .setContentIntent(fullScreenPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "关闭闹钟", stopPendingIntent)
             .setOngoing(true)
+            .apply {
+                if (isVibrationEnabled) {
+                    setVibrate(patternType.pattern)
+                } else {
+                    setVibrate(longArrayOf(0))
+                }
+            }
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -167,11 +181,13 @@ class AlarmService : Service() {
             startForeground(alarmId.toInt().coerceAtLeast(1), notification)
         }
 
-        // 3. 播放音乐与震动
+        // 3. 播放音乐与独立时长震动
         if (isSoundEnabled) {
             playRingtone(ringtoneUriStr)
         }
-        startVibration()
+        if (isVibrationEnabled && vibrationDurationSec > 0) {
+            startVibration(patternType.pattern, vibrationDurationSec)
+        }
 
         // 4. 关键突破：如果在其他应用界面，直接通过 WindowManager 在屏幕最顶层挂载全屏遮罩闪烁！
         if (isFlashEnabled) {
@@ -416,7 +432,7 @@ class AlarmService : Service() {
         }
     }
 
-    private fun startVibration() {
+    private fun startVibration(pattern: LongArray, durationSec: Int) {
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             manager.defaultVibrator
@@ -425,11 +441,34 @@ class AlarmService : Service() {
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 500), 0))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(longArrayOf(0, 800, 500), 0)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(pattern, 0)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 独立震动停止计时器：震动 durationSec 秒后自动停止震动，而不影响响铃和亮屏继续执行！
+        vibrationStopHandler?.removeCallbacksAndMessages(null)
+        vibrationStopHandler = Handler(Looper.getMainLooper()).apply {
+            postDelayed({
+                stopVibrationOnly()
+            }, durationSec * 1000L)
+        }
+    }
+
+    private fun stopVibrationOnly() {
+        vibrationStopHandler?.removeCallbacksAndMessages(null)
+        vibrationStopHandler = null
+        try {
+            vibrator?.cancel()
+            vibrator = null
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -452,6 +491,7 @@ class AlarmService : Service() {
         autoStopHandler?.removeCallbacksAndMessages(null)
         autoStopHandler = null
 
+        stopVibrationOnly()
         dismissOverlayInternal()
 
         try {
@@ -463,9 +503,6 @@ class AlarmService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        vibrator?.cancel()
-        vibrator = null
 
         wakeLock?.let {
             if (it.isHeld) it.release()

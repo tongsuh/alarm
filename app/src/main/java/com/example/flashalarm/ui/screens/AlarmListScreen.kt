@@ -221,7 +221,7 @@ fun IosAlarmItemRow(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // 第二行：亮屏状态（纯模板名称）
+            // 第二行：亮屏与手环/手机震动状态
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (alarm.isFlashEnabled) {
                     Icon(
@@ -251,10 +251,19 @@ fun IosAlarmItemRow(
                     )
                 }
 
-                if (alarm.isIntervalRepeatEnabled) {
-                    Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "· 📳 ${alarm.vibrationSummary}",
+                    fontSize = 12.sp,
+                    color = if (alarm.isEnabled && alarm.isVibrationEnabled) IosTextSecondary else IosTextTertiary
+                )
+            }
+
+            if (alarm.isIntervalRepeatEnabled) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "· 间隔${alarm.intervalRepeatMinutes}分重响${alarm.intervalRepeatTimes}次",
+                        text = "🔁 间隔${alarm.intervalRepeatMinutes}分重响${alarm.intervalRepeatTimes}次",
                         fontSize = 12.sp,
                         color = IosOrange
                     )

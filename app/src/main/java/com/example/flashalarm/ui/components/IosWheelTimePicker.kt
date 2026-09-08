@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -23,10 +24,11 @@ import com.example.flashalarm.ui.theme.IosCardSurfaceVariant
 import com.example.flashalarm.ui.theme.IosOrange
 import com.example.flashalarm.ui.theme.IosTextPrimary
 import com.example.flashalarm.ui.theme.IosTextSecondary
+import com.example.flashalarm.util.MechanicalTickSound
 
 /**
- * 仿 iOS 原生鼓轮时间选择器 (Wheel Time Picker)
- * 支持惯性滑动、居中吸附、立体透视、以及 iPhone 原生调时间机械齿轮音效与触觉反馈
+ * 仿 iOS 原生鼓轮时间选择器 (Circular Wheel Time Picker)
+ * 支持无限循环滑动（23下滑接00、59下滑接00）、居中吸附、立体透视、以及独立机械齿轮发声与触觉反馈
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -38,12 +40,16 @@ fun IosWheelTimePicker(
 ) {
     val itemHeight = 44.dp
     val visibleItemsCount = 5
+    val virtualMultiplier = 1000
 
     val hours = (0..23).toList()
     val minutes = (0..59).toList()
 
-    val hourListState = rememberLazyListState(initialFirstVisibleItemIndex = initialHour)
-    val minuteListState = rememberLazyListState(initialFirstVisibleItemIndex = initialMinute)
+    val initialHourIndex = (virtualMultiplier / 2) * 24 + initialHour
+    val initialMinuteIndex = (virtualMultiplier / 2) * 60 + initialMinute
+
+    val hourListState = rememberLazyListState(initialFirstVisibleItemIndex = initialHourIndex)
+    val minuteListState = rememberLazyListState(initialFirstVisibleItemIndex = initialMinuteIndex)
 
     val hourFlingBehavior = rememberSnapFlingBehavior(lazyListState = hourListState)
     val minuteFlingBehavior = rememberSnapFlingBehavior(lazyListState = minuteListState)
@@ -51,29 +57,46 @@ fun IosWheelTimePicker(
     val view = LocalView.current
     val haptic = LocalHapticFeedback.current
 
-    // 动态监听中心选中项
-    val selectedHour by remember {
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+
+    // 动态监听中心选中项的虚拟绝对索引（每一次格数移动都精准触发声音）
+    val currentHourItemIndex by remember {
         derivedStateOf {
             val index = hourListState.firstVisibleItemIndex
             val offset = hourListState.firstVisibleItemScrollOffset
-            if (offset > 50) (index + 1).coerceIn(0, 23) else index.coerceIn(0, 23)
+            if (itemHeightPx > 0f && offset > itemHeightPx / 2) index + 1 else index
+        }
+    }
+
+    val currentMinuteItemIndex by remember {
+        derivedStateOf {
+            val index = minuteListState.firstVisibleItemIndex
+            val offset = minuteListState.firstVisibleItemScrollOffset
+            if (itemHeightPx > 0f && offset > itemHeightPx / 2) index + 1 else index
+        }
+    }
+
+    // 头尾相连循环映射：23继续往下滑为00，00往上滑为23；59继续往下滑为00
+    val selectedHour by remember {
+        derivedStateOf {
+            ((currentHourItemIndex % 24) + 24) % 24
         }
     }
 
     val selectedMinute by remember {
         derivedStateOf {
-            val index = minuteListState.firstVisibleItemIndex
-            val offset = minuteListState.firstVisibleItemScrollOffset
-            if (offset > 50) (index + 1).coerceIn(0, 59) else index.coerceIn(0, 59)
+            ((currentMinuteItemIndex % 60) + 60) % 60
         }
     }
 
     // 跟踪是否是初次加载，避免刚打开页面就发声
     var isInitialized by remember { mutableStateOf(false) }
 
-    LaunchedEffect(selectedHour, selectedMinute) {
+    // 只要拨轮滑过任何一个刻度，立即触发清脆机械齿轮点击音效与细腻触感震动
+    LaunchedEffect(currentHourItemIndex, currentMinuteItemIndex) {
         if (isInitialized) {
-            // 播放 iPhone 机械齿轮音效与震动
+            MechanicalTickSound.play()
             try {
                 view.playSoundEffect(SoundEffectConstants.CLICK)
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -83,6 +106,9 @@ fun IosWheelTimePicker(
         } else {
             isInitialized = true
         }
+    }
+
+    LaunchedEffect(selectedHour, selectedMinute) {
         onTimeChanged(selectedHour, selectedMinute)
     }
 
@@ -105,7 +131,7 @@ fun IosWheelTimePicker(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 小时滚轮
+            // 小时滚轮 (头尾相连)
             WheelColumn(
                 items = hours,
                 state = hourListState,
@@ -113,6 +139,7 @@ fun IosWheelTimePicker(
                 selectedItem = selectedHour,
                 itemHeight = itemHeight,
                 unitLabel = "时",
+                virtualMultiplier = virtualMultiplier,
                 modifier = Modifier.weight(1f)
             )
 
@@ -124,7 +151,7 @@ fun IosWheelTimePicker(
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
 
-            // 分钟滚轮
+            // 分钟滚轮 (头尾相连)
             WheelColumn(
                 items = minutes,
                 state = minuteListState,
@@ -132,6 +159,7 @@ fun IosWheelTimePicker(
                 selectedItem = selectedMinute,
                 itemHeight = itemHeight,
                 unitLabel = "分",
+                virtualMultiplier = virtualMultiplier,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -147,8 +175,11 @@ private fun WheelColumn(
     selectedItem: Int,
     itemHeight: androidx.compose.ui.unit.Dp,
     unitLabel: String,
+    virtualMultiplier: Int = 1000,
     modifier: Modifier = Modifier
 ) {
+    val totalCount = items.size * virtualMultiplier
+
     LazyColumn(
         state = state,
         flingBehavior = flingBehavior,
@@ -156,8 +187,8 @@ private fun WheelColumn(
         modifier = modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        items(count = items.size) { index ->
-            val value = items[index]
+        items(count = totalCount) { index ->
+            val value = items[index % items.size]
             val isSelected = value == selectedItem
             val formatted = String.format("%02d", value)
 

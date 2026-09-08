@@ -26,11 +26,12 @@ class FlashAlarmApp : Application() {
                 ALARM_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "闹钟触发时的高优先级通知，支持锁屏直接拉起全屏界面"
+                description = "闹钟触发时的高优先级通知，支持锁屏直接拉起全屏界面并联动穿戴手环震动"
                 setBypassDnd(true) // 绕过勿扰模式
                 lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-                setSound(null, null) // 声音由 Activity 统一管理，避免重复
-                enableVibration(false)
+                setSound(null, null) // 声音由 AlarmService/Activity 统一播放，避免重复
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 1000, 300)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)

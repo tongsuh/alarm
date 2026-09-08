@@ -38,8 +38,10 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle)
             putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, alarm.autoDismissSec)
+            putExtra(AlarmAlertActivity.EXTRA_IS_VIBRATION_ENABLED, alarm.isVibrationEnabled)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_DURATION_SEC, alarm.vibrationDurationSec)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_PATTERN_ID, alarm.vibrationPatternId)
         }
 
         try {
@@ -70,8 +72,10 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(AlarmAlertActivity.EXTRA_TARGET_BRIGHTNESS, profile.targetBrightness)
             putExtra(AlarmAlertActivity.EXTRA_ON_DURATION_MS, profile.onDurationMs)
             putExtra(AlarmAlertActivity.EXTRA_OFF_DURATION_MS, profile.offDurationMs)
-            putExtra(AlarmAlertActivity.EXTRA_TOTAL_DURATION_CIRCLE, profile.totalDurationCircle)
             putExtra(AlarmAlertActivity.EXTRA_AUTO_DISMISS_SEC, alarm.autoDismissSec)
+            putExtra(AlarmAlertActivity.EXTRA_IS_VIBRATION_ENABLED, alarm.isVibrationEnabled)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_DURATION_SEC, alarm.vibrationDurationSec)
+            putExtra(AlarmAlertActivity.EXTRA_VIBRATION_PATTERN_ID, alarm.vibrationPatternId)
         }
 
         val pendingIntent = PendingIntent.getActivity(
