@@ -224,7 +224,8 @@ class AlarmService : Service() {
                 pattern = effectiveVibrationPattern,
                 durationSec = vibrationDurationSec,
                 wearableNotificationId = wearableNotificationId,
-                wearableNotification = wearableNotification
+                wearableNotification = wearableNotification,
+                patternType = patternType
             )
         }
 
@@ -483,7 +484,8 @@ class AlarmService : Service() {
         pattern: LongArray,
         durationSec: Int,
         wearableNotificationId: Int,
-        wearableNotification: Notification
+        wearableNotification: Notification,
+        patternType: VibrationPatternType
     ) {
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -504,18 +506,27 @@ class AlarmService : Service() {
             e.printStackTrace()
         }
 
-        // 穿戴设备持续震动脉冲：每 2.5 秒重发一次高优先级告警通知，确保手环持续响应设定的震动时长
+        // 穿戴设备持续震动脉冲：按模式专属的【宏观节拍调度表】循环下发通知，确保手环持续响应设定的节奏
+        val cadence = VibrationHelper.getWearablePulseCadence(patternType)
         wearablePulseJob?.cancel()
         wearablePulseJob = serviceScope.launch {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val startTime = System.currentTimeMillis()
             val totalMs = durationSec * 1000L
+            var cadenceIndex = 0
+            var pulseCount = 0
 
             while (isActive && (System.currentTimeMillis() - startTime) < totalMs) {
-                delay(2500L)
+                val waitTime = cadence[cadenceIndex % cadence.size]
+                cadenceIndex++
+                delay(waitTime)
                 if (!isActive) break
+
+                // 交替 ID 防止华为健康/小米穿戴合并过滤同一通知
+                val notifyId = wearableNotificationId + (pulseCount % 2)
+                pulseCount++
                 try {
-                    nm.notify(wearableNotificationId, wearableNotification)
+                    nm.notify(notifyId, wearableNotification)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -548,11 +559,12 @@ class AlarmService : Service() {
             e.printStackTrace()
         }
 
-        // 移除手环告警通知
+        // 移除手环告警通知（含交替 ID）
         if (currentWearableNotificationId != -1) {
             try {
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.cancel(currentWearableNotificationId)
+                nm.cancel(currentWearableNotificationId + 1)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
