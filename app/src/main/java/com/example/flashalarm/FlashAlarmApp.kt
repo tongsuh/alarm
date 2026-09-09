@@ -74,6 +74,9 @@ class FlashAlarmApp : Application() {
                 setSound(defaultSoundUri, audioAttributes)
             }
             manager.createNotificationChannel(wearableChannel)
+
+            // 初始化各震动类型的专用通知渠道，确保手环能准确响应对应节拍
+            com.example.flashalarm.util.VibrationHelper.createVibrationChannels(this)
         }
     }
 }

@@ -26,6 +26,7 @@ import androidx.core.app.NotificationCompat
 import com.example.flashalarm.FlashAlarmApp
 import com.example.flashalarm.model.VibrationPatternType
 import com.example.flashalarm.ui.AlarmAlertActivity
+import com.example.flashalarm.util.VibrationHelper
 import kotlinx.coroutines.*
 import java.io.File
 
@@ -177,7 +178,13 @@ class AlarmService : Service() {
         val wearableNotificationId = (alarmId.toInt() and 0x7FFFFFFF) + 88888
         currentWearableNotificationId = wearableNotificationId
 
-        val wearableNotification = NotificationCompat.Builder(this, FlashAlarmApp.WEARABLE_ALERT_CHANNEL_ID)
+        val alertChannelId = if (isVibrationEnabled) {
+            VibrationHelper.getChannelId(patternType)
+        } else {
+            FlashAlarmApp.WEARABLE_ALERT_CHANNEL_ID
+        }
+
+        val wearableNotification = NotificationCompat.Builder(this, alertChannelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
             .setContentText("闹钟正在响铃，点击查看或关闭")
@@ -425,9 +432,17 @@ class AlarmService : Service() {
                 }
             }
 
-            val uri = if (!path.isNullOrBlank()) Uri.parse(path)
-            else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val uri = if (!path.isNullOrBlank()) {
+                Uri.parse(path)
+            } else {
+                val rawResId = resources.getIdentifier("alarm_custom", "raw", packageName)
+                if (rawResId != 0) {
+                    Uri.parse("android.resource://$packageName/$rawResId")
+                } else {
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                }
+            }
 
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(this@AlarmService, uri)

@@ -37,7 +37,8 @@ fun AlarmListScreen(
     onDeleteAlarm: (AlarmItem) -> Unit,
     onEditAlarm: (AlarmItem) -> Unit,
     onAddNewAlarm: () -> Unit,
-    onOpenProfileManager: () -> Unit
+    onOpenProfileManager: () -> Unit,
+    onOpenBedsideMode: () -> Unit
 ) {
     Scaffold(
         containerColor = IosBackground,
@@ -58,6 +59,10 @@ fun AlarmListScreen(
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 床头微光模式快捷入口
+                    IconButton(onClick = onOpenBedsideMode) {
+                        Icon(Icons.Default.DarkMode, contentDescription = "床头微光常亮模式", tint = Color(0xFF5E5CE6))
+                    }
                     // 模板设置入口
                     IconButton(onClick = onOpenProfileManager) {
                         Icon(Icons.Default.Palette, contentDescription = "闪烁模板设置", tint = IosOrange)
@@ -75,6 +80,66 @@ fun AlarmListScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // 床头微光常亮模式突出快捷卡片 (与 iPhone 端完全一致)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clickable(onClick = onOpenBedsideMode),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF5E5CE6).copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(Color(0xFF5E5CE6).copy(alpha = 0.2f), androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.DarkMode,
+                            contentDescription = null,
+                            tint = Color(0xFF5E5CE6),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "床头微光常亮模式",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                "进入",
+                                color = Color(0xFF5E5CE6),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF5E5CE6).copy(alpha = 0.18f))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                        Text(
+                            "免点击保持常亮，闲置自动超微光防眩目",
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
             // 权限引导提示横幅 (关键: 引导用户开启悬浮窗权限，实现在其他 App 界面直接全屏闪烁)
             if (!hasOverlayPermission) {
                 Card(

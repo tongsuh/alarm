@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -34,6 +35,7 @@ import com.example.flashalarm.model.FlashProfile
 import com.example.flashalarm.model.VibrationPatternType
 import com.example.flashalarm.ui.components.IosWheelTimePicker
 import com.example.flashalarm.ui.theme.*
+import com.example.flashalarm.util.VibrationHelper
 import java.util.Calendar
 
 @Composable
@@ -81,10 +83,19 @@ fun AlarmEditDialog(
     var autoDismissMinutes by remember { mutableStateOf((initialTotalSec / 60).toString()) }
     var autoDismissSeconds by remember { mutableStateOf((initialTotalSec % 60).toString()) }
 
+    val context = LocalContext.current
+
     // 手环与手机震动设置
     var isVibrationEnabled by remember { mutableStateOf(initialAlarm?.isVibrationEnabled ?: true) }
     var vibrationDurationSec by remember { mutableStateOf((initialAlarm?.vibrationDurationSec ?: 15).toString()) }
     var selectedVibrationPatternId by remember { mutableStateOf(initialAlarm?.vibrationPatternId ?: "strong") }
+    var currentlyPreviewingId by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            VibrationHelper.stopPreview(context)
+        }
+    }
 
     // 特性 3：间隔重响功能 (如间隔30分钟，重复2次)
     var isIntervalRepeatEnabled by remember { mutableStateOf(initialAlarm?.isIntervalRepeatEnabled ?: false) }
@@ -102,7 +113,10 @@ fun AlarmEditDialog(
     )
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            VibrationHelper.stopPreview(context)
+            onDismiss()
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -126,7 +140,10 @@ fun AlarmEditDialog(
                         text = "取消",
                         color = IosOrange,
                         fontSize = 17.sp,
-                        modifier = Modifier.clickable(onClick = onDismiss)
+                        modifier = Modifier.clickable {
+                            VibrationHelper.stopPreview(context)
+                            onDismiss()
+                        }
                     )
                     Text(
                         text = if (initialAlarm == null) "添加闹钟" else "编辑闹钟",
@@ -140,6 +157,7 @@ fun AlarmEditDialog(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
+                            VibrationHelper.stopPreview(context)
                             val mins = autoDismissMinutes.toIntOrNull() ?: 0
                             val secs = autoDismissSeconds.toIntOrNull() ?: 30
                             val totalSec = (mins * 60 + secs).coerceAtLeast(5)
@@ -575,31 +593,79 @@ fun AlarmEditDialog(
 
                                 VibrationPatternType.values().forEach { vType ->
                                     val isVibSelected = selectedVibrationPatternId == vType.id
+                                    val isPreviewing = currentlyPreviewingId == vType.id
+
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(if (isVibSelected) IosCardSurfaceVariant else Color.Transparent)
-                                            .clickable { selectedVibrationPatternId = vType.id }
+                                            .clickable {
+                                                selectedVibrationPatternId = vType.id
+                                                currentlyPreviewingId = vType.id
+                                                VibrationHelper.playPreview(context, vType) {
+                                                    if (currentlyPreviewingId == vType.id) {
+                                                        currentlyPreviewingId = null
+                                                    }
+                                                }
+                                            }
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = vType.title,
-                                                color = if (isVibSelected) IosOrange else IosTextPrimary,
-                                                fontSize = 15.sp,
-                                                fontWeight = if (isVibSelected) FontWeight.Bold else FontWeight.Normal
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = vType.title,
+                                                    color = if (isVibSelected) IosOrange else IosTextPrimary,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = if (isVibSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                if (isPreviewing) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "📳 手机与手环试震中...",
+                                                        color = IosOrange,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
                                             Text(
                                                 text = vType.description,
                                                 color = IosTextSecondary,
                                                 fontSize = 12.sp
                                             )
                                         }
-                                        if (isVibSelected) {
-                                            Icon(Icons.Default.Check, contentDescription = "已选择", tint = IosOrange)
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(
+                                                onClick = {
+                                                    selectedVibrationPatternId = vType.id
+                                                    currentlyPreviewingId = vType.id
+                                                    VibrationHelper.playPreview(context, vType) {
+                                                        if (currentlyPreviewingId == vType.id) {
+                                                            currentlyPreviewingId = null
+                                                        }
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isPreviewing) "震动中" else "试震",
+                                                    color = if (isPreviewing) IosOrange else IosTextSecondary,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+
+                                            if (isVibSelected) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = "已选择",
+                                                    tint = IosOrange,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

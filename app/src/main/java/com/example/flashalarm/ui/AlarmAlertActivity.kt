@@ -71,8 +71,6 @@ class AlarmAlertActivity : AppCompatActivity() {
     private lateinit var rootContainer: FrameLayout
     private lateinit var tvLabel: TextView
     private lateinit var tvTime: TextView
-    private lateinit var tvHint: TextView
-    private lateinit var tvAutoDismiss: TextView
     private lateinit var infoPanel: LinearLayout
 
     private var flashJob: Job? = null
@@ -188,28 +186,30 @@ class AlarmAlertActivity : AppCompatActivity() {
             setPadding(0, 12, 0, 12)
         }
 
-        tvAutoDismiss = TextView(this).apply {
-            text = if (effectiveTotalDurationSec > 0) {
-                if (isPreviewMode) "测试将在 ${effectiveTotalDurationSec} 秒后自动结束"
-                else "将在 ${effectiveTotalDurationSec} 秒后自动停止"
-            } else ""
-            textSize = 15f
-            setTextColor(Color.LTGRAY)
+        val btnDismiss = TextView(this).apply {
+            text = "关闭"
+            textSize = 17f
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 36)
-        }
-
-        tvHint = TextView(this).apply {
-            text = "轻触屏幕任意位置关闭"
-            textSize = 18f
-            setTextColor(Color.argb(180, 255, 255, 255))
-            gravity = Gravity.CENTER
+            val shape = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 70f
+                setColor(Color.argb(50, 255, 255, 255))
+                setStroke(2, Color.argb(80, 255, 255, 255))
+            }
+            background = shape
+            layoutParams = LinearLayout.LayoutParams(380, 136).apply {
+                topMargin = 120
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            setOnClickListener {
+                dismissAlarm("点击关闭")
+            }
         }
 
         infoPanel.addView(tvLabel)
         infoPanel.addView(tvTime)
-        infoPanel.addView(tvAutoDismiss)
-        infoPanel.addView(tvHint)
+        infoPanel.addView(btnDismiss)
 
         rootContainer.addView(infoPanel)
         setContentView(rootContainer)
@@ -305,8 +305,6 @@ class AlarmAlertActivity : AppCompatActivity() {
             while (isActive && remain > 0) {
                 delay(1000L)
                 remain--
-                tvAutoDismiss.text = if (isPreviewMode) "测试将在 ${remain} 秒后自动结束"
-                                     else "将在 ${remain} 秒后自动停止"
             }
             if (isActive) {
                 dismissAlarm(if (isPreviewMode) "测试结束" else "自动停止")
