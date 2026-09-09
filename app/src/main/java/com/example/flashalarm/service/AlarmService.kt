@@ -184,6 +184,12 @@ class AlarmService : Service() {
             FlashAlarmApp.WEARABLE_ALERT_CHANNEL_ID
         }
 
+        val effectiveVibrationPattern = if (isVibrationEnabled) {
+            VibrationHelper.getPreviewPattern(patternType)
+        } else {
+            longArrayOf(0)
+        }
+
         val wearableNotification = NotificationCompat.Builder(this, alertChannelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
@@ -198,11 +204,7 @@ class AlarmService : Service() {
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
             .apply {
-                if (isVibrationEnabled) {
-                    setVibrate(patternType.pattern)
-                } else {
-                    setVibrate(longArrayOf(0))
-                }
+                setVibrate(effectiveVibrationPattern)
             }
             .build()
 
@@ -219,7 +221,7 @@ class AlarmService : Service() {
         }
         if (isVibrationEnabled && vibrationDurationSec > 0) {
             startVibration(
-                pattern = patternType.pattern,
+                pattern = effectiveVibrationPattern,
                 durationSec = vibrationDurationSec,
                 wearableNotificationId = wearableNotificationId,
                 wearableNotification = wearableNotification

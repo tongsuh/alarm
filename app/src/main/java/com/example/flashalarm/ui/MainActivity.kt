@@ -34,7 +34,6 @@ import com.example.flashalarm.model.FlashProfile
 import com.example.flashalarm.scheduler.AlarmScheduler
 import com.example.flashalarm.ui.screens.AlarmEditDialog
 import com.example.flashalarm.ui.screens.AlarmListScreen
-import com.example.flashalarm.ui.screens.BedsideModeScreen
 import com.example.flashalarm.ui.screens.FlashProfileManageDialog
 import com.example.flashalarm.ui.theme.*
 import com.example.flashalarm.util.AlarmAudioHelper
@@ -105,74 +104,46 @@ class MainActivity : ComponentActivity() {
                     var editingAlarm by remember { mutableStateOf<AlarmItem?>(null) }
                     var isEditDialogOpen by remember { mutableStateOf(false) }
                     var isProfileDialogOpen by remember { mutableStateOf(false) }
-                    var isBedsideModeActive by remember { mutableStateOf(false) }
-                    var userInteractionTick by remember { mutableStateOf(0) }
 
-                    // 闲置 20 秒自动进入床头微光常亮模式 (与 iPhone 端体验完全一致)
-                    LaunchedEffect(isBedsideModeActive, isEditDialogOpen, isProfileDialogOpen, showOverlayPermissionPromptDialog, userInteractionTick) {
-                        if (!isBedsideModeActive && !isEditDialogOpen && !isProfileDialogOpen && !showOverlayPermissionPromptDialog) {
-                            kotlinx.coroutines.delay(20000L)
-                            isBedsideModeActive = true
-                        }
-                    }
-
-                    if (isBedsideModeActive) {
-                        BedsideModeScreen(
-                            alarms = alarms,
-                            onExit = {
-                                isBedsideModeActive = false
-                                userInteractionTick++
-                            }
-                        )
-                    } else {
-                        AlarmListScreen(
-                            alarms = alarms,
-                            profiles = profiles,
-                            hasOverlayPermission = hasOverlayPermissionState,
-                            onRequestOverlayPermission = { requestOverlayPermission() },
-                            onToggleAlarm = { alarm, enabled ->
-                                val updated = alarm.copy(isEnabled = enabled)
-                                alarmRepo.saveAlarm(updated)
-                                if (enabled) {
-                                    AlarmScheduler.scheduleAlarm(this@MainActivity, updated)
-                                } else {
-                                    AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
-                                }
-                                alarms = alarmRepo.getAllAlarms()
-                                userInteractionTick++
-                            },
-                            onDeleteAlarm = { alarm ->
+                    AlarmListScreen(
+                        alarms = alarms,
+                        profiles = profiles,
+                        hasOverlayPermission = hasOverlayPermissionState,
+                        onRequestOverlayPermission = { requestOverlayPermission() },
+                        onToggleAlarm = { alarm, enabled ->
+                            val updated = alarm.copy(isEnabled = enabled)
+                            alarmRepo.saveAlarm(updated)
+                            if (enabled) {
+                                AlarmScheduler.scheduleAlarm(this@MainActivity, updated)
+                            } else {
                                 AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
-                                AlarmAudioHelper.deleteInternalAudio(this@MainActivity, alarm.id)
-                                alarmRepo.deleteAlarm(alarm.id)
-                                alarms = alarmRepo.getAllAlarms()
-                                userInteractionTick++
-                            },
-                            onEditAlarm = { alarm ->
-                                editingAlarm = alarm
-                                currentEditingAlarmId = alarm.id
-                                selectedAudioUriState = alarm.ringtoneUri
-                                selectedAudioTitleState = alarm.ringtoneTitle
-                                isEditDialogOpen = true
-                                userInteractionTick++
-                            },
-                            onAddNewAlarm = {
-                                editingAlarm = null
-                                currentEditingAlarmId = System.currentTimeMillis()
-                                selectedAudioUriState = null
-                                selectedAudioTitleState = "默认闹钟铃声"
-                                isEditDialogOpen = true
-                                userInteractionTick++
-                            },
-                            onOpenProfileManager = {
-                                isProfileDialogOpen = true
-                                userInteractionTick++
-                            },
-                            onOpenBedsideMode = {
-                                isBedsideModeActive = true
                             }
-                        )
-                    }
+                            alarms = alarmRepo.getAllAlarms()
+                        },
+                        onDeleteAlarm = { alarm ->
+                            AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
+                            AlarmAudioHelper.deleteInternalAudio(this@MainActivity, alarm.id)
+                            alarmRepo.deleteAlarm(alarm.id)
+                            alarms = alarmRepo.getAllAlarms()
+                        },
+                        onEditAlarm = { alarm ->
+                            editingAlarm = alarm
+                            currentEditingAlarmId = alarm.id
+                            selectedAudioUriState = alarm.ringtoneUri
+                            selectedAudioTitleState = alarm.ringtoneTitle
+                            isEditDialogOpen = true
+                        },
+                        onAddNewAlarm = {
+                            editingAlarm = null
+                            currentEditingAlarmId = System.currentTimeMillis()
+                            selectedAudioUriState = null
+                            selectedAudioTitleState = "默认闹钟铃声"
+                            isEditDialogOpen = true
+                        },
+                        onOpenProfileManager = {
+                            isProfileDialogOpen = true
+                        }
+                    )
 
                     // 仿 iOS 闹钟添加 / 编辑弹窗
                     if (isEditDialogOpen) {

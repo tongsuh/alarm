@@ -20,7 +20,8 @@ import com.example.flashalarm.model.VibrationPatternType
 object VibrationHelper {
 
     private const val PREVIEW_NOTIFICATION_ID = 99999
-    private const val CHANNEL_PREFIX = "flash_alarm_vibe_channel_"
+    // 升级至 v5 版本通道，强制清除旧版系统与穿戴健康 App 缓存的超短单次波形
+    private const val CHANNEL_PREFIX = "flash_alarm_vibe_v5_"
 
     private var activeVibrator: Vibrator? = null
     private var stopPreviewRunnable: Runnable? = null
@@ -31,6 +32,40 @@ object VibrationHelper {
      */
     fun getChannelId(patternType: VibrationPatternType): String {
         return "$CHANNEL_PREFIX${patternType.id}"
+    }
+
+    /**
+     * 获取供手环与手机试震感知的丰富多周期完整节拍波形（持续 3.5 ~ 4.5 秒）
+     * 解决原先仅单次短震导致手环无法感知节拍特征的问题
+     */
+    fun getPreviewPattern(patternType: VibrationPatternType): LongArray {
+        return when (patternType) {
+            // 持续强震：重度长震 1200ms，短歇 350ms，连续循环 3 次，总时长 ~4.6 秒，强穿透力
+            VibrationPatternType.STRONG_ALARM -> longArrayOf(
+                0, 1200, 350, 1200, 350, 1200, 350
+            )
+
+            // 紧促脉冲：高频急促短震 150ms / 歇 100ms，连续循环 12 次，总时长 ~3.0 秒，手腕蜂鸣感极其明显
+            VibrationPatternType.RAPID_PULSE -> longArrayOf(
+                0, 150, 100, 150, 100, 150, 100, 150, 100,
+                150, 100, 150, 100, 150, 100, 150, 100,
+                150, 100, 150, 100, 150, 100, 150, 100
+            )
+
+            // 心跳双击：咚-咚 (120ms/100ms/280ms) 顿挫 550ms，连续 4 组心跳，总时长 ~4.2 秒，节拍分明
+            VibrationPatternType.HEARTBEAT -> longArrayOf(
+                0, 120, 100, 280, 550,
+                120, 100, 280, 550,
+                120, 100, 280, 550,
+                120, 100, 280, 550
+            )
+
+            // 渐强波浪：起伏递进波形 (200ms -> 450ms -> 800ms)，连续 2 组波浪，总时长 ~4.2 秒，潮水起伏感
+            VibrationPatternType.WAVE -> longArrayOf(
+                0, 200, 150, 450, 200, 800, 350,
+                200, 150, 450, 200, 800, 350
+            )
+        }
     }
 
     /**
@@ -48,6 +83,7 @@ object VibrationHelper {
 
             VibrationPatternType.values().forEach { vType ->
                 val channelId = getChannelId(vType)
+                val fullPattern = getPreviewPattern(vType)
                 val channel = NotificationChannel(
                     channelId,
                     "闹钟震动 - ${vType.title}",
@@ -57,7 +93,7 @@ object VibrationHelper {
                     setBypassDnd(true)
                     lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
                     enableVibration(true)
-                    vibrationPattern = vType.pattern
+                    vibrationPattern = fullPattern
                     setSound(null, audioAttributes) // 试震与纯震动通道保持静音
                 }
                 manager.createNotificationChannel(channel)
@@ -66,19 +102,7 @@ object VibrationHelper {
     }
 
     /**
-     * 获取供用户试震感知的完整节奏序列（2~2.5秒）
-     */
-    fun getPreviewPattern(patternType: VibrationPatternType): LongArray {
-        return when (patternType) {
-            VibrationPatternType.STRONG_ALARM -> longArrayOf(0, 1000, 300, 1000)
-            VibrationPatternType.RAPID_PULSE -> longArrayOf(0, 200, 200, 200, 200, 200, 200, 200, 200, 200)
-            VibrationPatternType.HEARTBEAT -> longArrayOf(0, 150, 150, 350, 600, 150, 150, 350)
-            VibrationPatternType.WAVE -> longArrayOf(0, 300, 200, 600, 300, 300, 200, 600)
-        }
-    }
-
-    /**
-     * 在手环与手机上同步触发对应类型的试震
+     * 在手环与手机上同步触发对应类型的试震（完整 3.5 ~ 4.5 秒节奏）
      * @param context 上下文
      * @param patternType 所选震动类型
      * @param onFinished 试震结束时的回调
@@ -97,9 +121,9 @@ object VibrationHelper {
         for (d in pattern) {
             totalDurationMs += d
         }
-        if (totalDurationMs <= 0) totalDurationMs = 2300L
+        if (totalDurationMs <= 0) totalDurationMs = 3500L
 
-        // 1. 手机硬件马达驱动震动
+        // 1. 手机硬件马达驱动完整波形震动
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
             vm?.defaultVibrator
@@ -126,8 +150,8 @@ object VibrationHelper {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("📳 ${patternType.title} · 试震")
-            .setContentText("手环与手机正在同步震动试感...")
+            .setContentTitle("📳 ${patternType.title} · 试震中")
+            .setContentText("手环与手机正在同步进行节拍试震感知...")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -143,13 +167,13 @@ object VibrationHelper {
             e.printStackTrace()
         }
 
-        // 3. 试震结束后自动清理
+        // 3. 试震结束后自动清理 (保持完整波形时长)
         val runnable = Runnable {
             stopPreview(context)
             onFinished?.invoke()
         }
         stopPreviewRunnable = runnable
-        mainHandler.postDelayed(runnable, totalDurationMs + 100L)
+        mainHandler.postDelayed(runnable, totalDurationMs + 200L)
     }
 
     /**
