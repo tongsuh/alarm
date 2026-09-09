@@ -93,7 +93,10 @@ object VibrationHelper {
         createVibrationChannels(context)
 
         val pattern = getPreviewPattern(patternType)
-        var totalDurationMs = pattern.sum()
+        var totalDurationMs = 0L
+        for (d in pattern) {
+            totalDurationMs += d
+        }
         if (totalDurationMs <= 0) totalDurationMs = 2300L
 
         // 1. 手机硬件马达驱动震动

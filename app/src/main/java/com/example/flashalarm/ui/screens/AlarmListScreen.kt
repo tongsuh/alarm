@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MusicNote
@@ -61,7 +62,7 @@ fun AlarmListScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // 床头微光模式快捷入口
                     IconButton(onClick = onOpenBedsideMode) {
-                        Icon(Icons.Default.DarkMode, contentDescription = "床头微光常亮模式", tint = Color(0xFF5E5CE6))
+                        Icon(Icons.Default.Bedtime, contentDescription = "床头微光常亮模式", tint = Color(0xFF5E5CE6))
                     }
                     // 模板设置入口
                     IconButton(onClick = onOpenProfileManager) {
@@ -101,7 +102,7 @@ fun AlarmListScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.DarkMode,
+                            Icons.Default.Bedtime,
                             contentDescription = null,
                             tint = Color(0xFF5E5CE6),
                             modifier = Modifier.size(22.dp)
