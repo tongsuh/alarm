@@ -22,6 +22,7 @@ import com.example.flashalarm.FlashAlarmApp
 import com.example.flashalarm.R
 import com.example.flashalarm.model.VibrationPatternType
 import com.example.flashalarm.ui.MainActivity
+import com.example.flashalarm.ui.SleepModeActivity
 import com.example.flashalarm.util.VibrationHelper
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -431,8 +432,8 @@ class SleepTrackingService : Service() {
     }
 
     private fun buildKeepaliveNotification(detail: String): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        val intent = Intent(this, SleepModeActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             this,

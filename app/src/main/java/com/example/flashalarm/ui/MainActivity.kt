@@ -107,7 +107,12 @@ class MainActivity : ComponentActivity() {
 
     private fun startSleepTrackingInternal() {
         SleepTrackingService.startTracking(this)
-        Toast.makeText(this, "🌙 已开启清醒梦感知，请将手机平放床垫边缘", Toast.LENGTH_SHORT).show()
+        SleepModeActivity.start(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateOverlayPermissionState()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -185,7 +190,8 @@ class MainActivity : ComponentActivity() {
                         isWhiteNoiseActive = isWhiteNoiseActive,
                         onStartSleepTracking = { requestStartSleepTracking() },
                         onStopSleepTracking = { SleepTrackingService.stopTracking(this@MainActivity) },
-                        onOpenSleepConfig = { isSleepConfigDialogOpen = true }
+                        onOpenSleepConfig = { isSleepConfigDialogOpen = true },
+                        onOpenSleepScreen = { SleepModeActivity.start(this@MainActivity) }
                     )
 
                     // 清醒梦与 REM 触梦参数配置抽屉

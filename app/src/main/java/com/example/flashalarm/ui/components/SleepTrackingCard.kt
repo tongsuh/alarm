@@ -37,6 +37,7 @@ fun SleepTrackingCard(
     onStartTracking: () -> Unit,
     onStopTracking: () -> Unit,
     onOpenConfig: () -> Unit,
+    onOpenSleepScreen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // 监测中的呼吸微光动画
@@ -52,7 +53,9 @@ fun SleepTrackingCard(
     )
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = isTrackingRunning) { onOpenSleepScreen() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF131316)),
         border = BorderStroke(
@@ -111,7 +114,7 @@ fun SleepTrackingCard(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            if (isTrackingRunning) statusTitle else "睡前放置床垫 · 自动捕捉入眠并温和触梦",
+                            if (isTrackingRunning) "$statusTitle (点击进入暗夜时钟屏)" else "睡前放置床垫 · 自动捕捉入眠并温和触梦",
                             color = if (isTrackingRunning) IosOrange else Color.White.copy(alpha = 0.45f),
                             fontSize = 11.sp,
                             fontWeight = if (isTrackingRunning) FontWeight.Medium else FontWeight.Normal

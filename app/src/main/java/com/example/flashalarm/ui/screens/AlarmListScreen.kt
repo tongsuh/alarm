@@ -51,7 +51,8 @@ fun AlarmListScreen(
     isWhiteNoiseActive: Boolean = false,
     onStartSleepTracking: () -> Unit = {},
     onStopSleepTracking: () -> Unit = {},
-    onOpenSleepConfig: () -> Unit = {}
+    onOpenSleepConfig: () -> Unit = {},
+    onOpenSleepScreen: () -> Unit = {}
 ) {
     var alarmPendingDelete by remember { mutableStateOf<AlarmItem?>(null) }
 
@@ -168,6 +169,7 @@ fun AlarmListScreen(
                 onStartTracking = onStartSleepTracking,
                 onStopTracking = onStopSleepTracking,
                 onOpenConfig = onOpenSleepConfig,
+                onOpenSleepScreen = onOpenSleepScreen,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
 

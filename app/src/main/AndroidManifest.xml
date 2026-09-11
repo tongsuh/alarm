@@ -63,6 +63,15 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.FlashAlarm.Alert" />
 
+        <!-- 纯黑极暗夜间就寝时钟与防误触屏保 Activity -->
+        <activity
+            android:name=".ui.SleepModeActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.FlashAlarm.Alert" />
+
         <!-- 核心前台守护与播放服务 -->
         <service
             android:name=".service.AlarmService"
