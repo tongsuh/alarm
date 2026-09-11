@@ -39,6 +39,7 @@ import com.example.flashalarm.sleep.RemDreamConfig
 import com.example.flashalarm.sleep.RemDreamRepository
 import com.example.flashalarm.sleep.SleepTrackingService
 import com.example.flashalarm.ui.dialogs.RemDreamConfigDialog
+import com.example.flashalarm.ui.theme.*
 import com.example.flashalarm.util.AlarmAudioHelper
 
 class MainActivity : ComponentActivity() {
