@@ -31,6 +31,8 @@ import com.example.flashalarm.model.AlarmItem
 import com.example.flashalarm.model.FlashProfile
 import com.example.flashalarm.ui.theme.*
 
+import com.example.flashalarm.ui.components.SleepTrackingCard
+
 @Composable
 fun AlarmListScreen(
     alarms: List<AlarmItem>,
@@ -41,7 +43,15 @@ fun AlarmListScreen(
     onDeleteAlarm: (AlarmItem) -> Unit,
     onEditAlarm: (AlarmItem) -> Unit,
     onAddNewAlarm: () -> Unit,
-    onOpenProfileManager: () -> Unit
+    onOpenProfileManager: () -> Unit,
+    isSleepTrackingRunning: Boolean = false,
+    sleepStatusTitle: String = "未开启",
+    sleepStatusDetail: String = "睡前放置床垫边缘 · 自动捕捉入眠并温和触梦",
+    isPhoneFlat: Boolean = true,
+    isWhiteNoiseActive: Boolean = false,
+    onStartSleepTracking: () -> Unit = {},
+    onStopSleepTracking: () -> Unit = {},
+    onOpenSleepConfig: () -> Unit = {}
 ) {
     var alarmPendingDelete by remember { mutableStateOf<AlarmItem?>(null) }
 
@@ -147,6 +157,19 @@ fun AlarmListScreen(
                     }
                 }
             }
+
+            // 清醒梦入眠感知与 REM 触梦卡片
+            SleepTrackingCard(
+                isTrackingRunning = isSleepTrackingRunning,
+                statusTitle = sleepStatusTitle,
+                statusDetail = sleepStatusDetail,
+                isPhoneFlat = isPhoneFlat,
+                isWhiteNoiseActive = isWhiteNoiseActive,
+                onStartTracking = onStartSleepTracking,
+                onStopTracking = onStopSleepTracking,
+                onOpenConfig = onOpenSleepConfig,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
 
             if (alarms.isEmpty()) {
                 Box(

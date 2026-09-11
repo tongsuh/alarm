@@ -35,19 +35,32 @@ import com.example.flashalarm.scheduler.AlarmScheduler
 import com.example.flashalarm.ui.screens.AlarmEditDialog
 import com.example.flashalarm.ui.screens.AlarmListScreen
 import com.example.flashalarm.ui.screens.FlashProfileManageDialog
-import com.example.flashalarm.ui.theme.*
+import com.example.flashalarm.sleep.RemDreamConfig
+import com.example.flashalarm.sleep.RemDreamRepository
+import com.example.flashalarm.sleep.SleepTrackingService
+import com.example.flashalarm.ui.dialogs.RemDreamConfigDialog
 import com.example.flashalarm.util.AlarmAudioHelper
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmRepo: AlarmRepository
     private lateinit var profileRepo: FlashProfileRepository
+    private lateinit var remRepo: RemDreamRepository
 
     private var currentEditingAlarmId: Long = System.currentTimeMillis()
     private var selectedAudioUriState by mutableStateOf<String?>(null)
     private var selectedAudioTitleState by mutableStateOf("默认闹钟铃声")
     private var hasOverlayPermissionState by mutableStateOf(true)
     private var showOverlayPermissionPromptDialog by mutableStateOf(false)
+
+    private val requestRecordAudioPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            if (isGranted) {
+                startSleepTrackingInternal()
+            } else {
+                Toast.makeText(this, "⚠️ 需要麦克风权限以在后半夜分析呼吸做梦特征", Toast.LENGTH_LONG).show()
+            }
+        }
 
     // 系统铃声与本地音乐选择器回调
     private val ringtonePickerLauncher =
@@ -83,11 +96,25 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private fun requestStartSleepTracking() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startSleepTrackingInternal()
+        } else {
+            requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startSleepTrackingInternal() {
+        SleepTrackingService.startTracking(this)
+        Toast.makeText(this, "🌙 已开启清醒梦感知，请将手机平放床垫边缘", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         alarmRepo = AlarmRepository(this)
         profileRepo = FlashProfileRepository(this)
+        remRepo = RemDreamRepository(this)
 
         updateOverlayPermissionState()
         checkAndRequestPermissions()
@@ -104,6 +131,11 @@ class MainActivity : ComponentActivity() {
                     var editingAlarm by remember { mutableStateOf<AlarmItem?>(null) }
                     var isEditDialogOpen by remember { mutableStateOf(false) }
                     var isProfileDialogOpen by remember { mutableStateOf(false) }
+                    var isSleepConfigDialogOpen by remember { mutableStateOf(false) }
+
+                    val isSleepTrackingRunning by SleepTrackingService.isServiceRunning.collectAsState()
+                    val sleepStatusTitle by SleepTrackingService.liveStatusText.collectAsState()
+                    val sleepStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
 
                     AlarmListScreen(
                         alarms = alarms,
@@ -142,8 +174,29 @@ class MainActivity : ComponentActivity() {
                         },
                         onOpenProfileManager = {
                             isProfileDialogOpen = true
-                        }
+                        },
+                        isSleepTrackingRunning = isSleepTrackingRunning,
+                        sleepStatusTitle = sleepStatusTitle,
+                        sleepStatusDetail = sleepStatusDetail,
+                        onStartSleepTracking = { requestStartSleepTracking() },
+                        onStopSleepTracking = { SleepTrackingService.stopTracking(this@MainActivity) },
+                        onOpenSleepConfig = { isSleepConfigDialogOpen = true }
                     )
+
+                    // 清醒梦与 REM 触梦参数配置抽屉
+                    if (isSleepConfigDialogOpen) {
+                        RemDreamConfigDialog(
+                            initialConfig = remRepo.getConfig(),
+                            onSaveConfig = { newConfig ->
+                                remRepo.saveConfig(newConfig)
+                                Toast.makeText(this@MainActivity, "清醒梦触梦设置已保存", Toast.LENGTH_SHORT).show()
+                            },
+                            onSimulateCue = {
+                                SleepTrackingService.simulateCue(this@MainActivity)
+                            },
+                            onDismiss = { isSleepConfigDialogOpen = false }
+                        )
+                    }
 
                     // 仿 iOS 闹钟添加 / 编辑弹窗
                     if (isEditDialogOpen) {

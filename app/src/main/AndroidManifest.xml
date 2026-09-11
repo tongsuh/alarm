@@ -26,6 +26,11 @@
     <!-- 忽略电池优化申请 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- 睡眠呼吸声学分析与前台服务权限 (Android 14+) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+
     <application
         android:name=".FlashAlarmApp"
         android:allowBackup="true"
@@ -63,6 +68,12 @@
             android:name=".service.AlarmService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- 智能就寝与清醒梦感知前台守护服务 -->
+        <service
+            android:name=".sleep.SleepTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaPlayback" />
 
         <!-- 闹钟广播接收器 -->
         <receiver
