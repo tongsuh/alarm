@@ -110,11 +110,6 @@ class MainActivity : ComponentActivity() {
         SleepModeActivity.start(this)
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateOverlayPermissionState()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
