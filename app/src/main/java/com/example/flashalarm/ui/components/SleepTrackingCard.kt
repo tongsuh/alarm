@@ -143,15 +143,19 @@ fun SleepTrackingCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 StatusBadge(
-                    text = if (isPhoneFlat) "姿态: 平放正常" else "姿态: 偏斜",
-                    isGood = isPhoneFlat
+                    text = if (isTrackingRunning) {
+                        if (isPhoneFlat) "姿态: 平放正常" else "姿态: 偏斜需平放"
+                    } else {
+                        "姿态: 就绪待命"
+                    },
+                    isGood = !isTrackingRunning || isPhoneFlat
                 )
                 StatusBadge(
                     text = "抗噪: 180~800Hz",
                     isGood = true
                 )
                 StatusBadge(
-                    text = if (isWhiteNoiseActive) "白噪音: 正在避让" else "白噪音: 就绪",
+                    text = if (isWhiteNoiseActive) "白噪音: 正在避让" else "白噪音: 自动避让",
                     isGood = true
                 )
             }

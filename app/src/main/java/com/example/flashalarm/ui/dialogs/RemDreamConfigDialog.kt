@@ -1,5 +1,6 @@
 package com.example.flashalarm.ui.dialogs
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,25 +11,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.flashalarm.sleep.RemDreamConfig
+import com.example.flashalarm.sleep.SensorDiagnosticHelper
+import com.example.flashalarm.sleep.SleepTrackingService
 import com.example.flashalarm.ui.theme.IosOrange
 import com.example.flashalarm.ui.theme.IosRed
 import kotlin.math.roundToInt
 
 /**
- * 黑曜石奢华极简风格 · 清醒梦与 REM 触梦参数配置抽屉
+ * 黑曜石奢华极简风格 · 清醒梦参数配置与传感器实时诊断抽屉
  */
 @Composable
 fun RemDreamConfigDialog(
@@ -37,6 +44,24 @@ fun RemDreamConfigDialog(
     onSimulateCue: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val diagnosticHelper = remember { SensorDiagnosticHelper(context) }
+
+    // 打开面板即开启传感器高灵敏度自检，关闭时彻底销毁释放
+    DisposableEffect(Unit) {
+        diagnosticHelper.startDiagnostics()
+        onDispose {
+            diagnosticHelper.stopDiagnostics()
+        }
+    }
+
+    val liveTiltAngle by diagnosticHelper.tiltAngle.collectAsState()
+    val isLiveFlat by diagnosticHelper.isFlat.collectAsState()
+    val liveDb by diagnosticHelper.liveDb.collectAsState()
+    val noiseFloorDb by diagnosticHelper.noiseFloorDb.collectAsState()
+    val isMicResponsive by diagnosticHelper.isMicResponsive.collectAsState()
+    val isSimulatingService by SleepTrackingService.isSimulatingCue.collectAsState()
+
     var cycleMode by remember { mutableStateOf(initialConfig.cycleMode) }
     var flashBrightness by remember { mutableFloatStateOf(initialConfig.flashBrightness) }
     var isWhisperEnabled by remember { mutableStateOf(initialConfig.isWhisperEnabled) }
@@ -44,7 +69,6 @@ fun RemDreamConfigDialog(
     var isVibrationEnabled by remember { mutableStateOf(initialConfig.isVibrationEnabled) }
     var vibrationPatternId by remember { mutableStateOf(initialConfig.vibrationPatternId) }
     var cueDurationSec by remember { mutableIntStateOf(initialConfig.cueDurationSec) }
-    var isSimulating by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -52,8 +76,8 @@ fun RemDreamConfigDialog(
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .fillMaxHeight(0.85f),
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.88f),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141416)),
             border = BorderStroke(1.dp, Color(0xFF28282D))
@@ -94,15 +118,109 @@ fun RemDreamConfigDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // 可滚动内容区域
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // ========== 0. 核心新增：传感器实时诊断与校准面板 ==========
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF101013)),
+                        border = BorderStroke(1.dp, IosOrange.copy(alpha = 0.35f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(if (isLiveFlat && isMicResponsive) Color(0xFF4CAF50) else IosOrange, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "🧪 传感器硬件实时自检",
+                                    color = IosOrange,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // 姿态自检条
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.ScreenRotation, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("床垫水平姿态", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                                }
+                                Text(
+                                    if (isLiveFlat) "🟢 倾角 ${"%.1f".format(liveTiltAngle)}° (平放良好)" else "❌ 倾角 ${"%.1f".format(liveTiltAngle)}° (请水平放置)",
+                                    color = if (isLiveFlat) Color(0xFF4CAF50) else Color(0xFFFF5252),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            // 倾角可视化进度条
+                            val angleProgress = (liveTiltAngle / 60f).coerceIn(0f, 1f)
+                            LinearProgressIndicator(
+                                progress = { angleProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                                color = if (isLiveFlat) Color(0xFF4CAF50) else Color(0xFFFF5252),
+                                trackColor = Color.White.copy(alpha = 0.08f)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 麦克风拾音自检条
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("麦克风拾音测试", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                                }
+                                Text(
+                                    "实时: ${liveDb.toInt()}dB | 底噪: ${noiseFloorDb.toInt()}dB",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            // 动态分贝跳动条
+                            val dbProgress = ((liveDb - 20f) / 60f).coerceIn(0.05f, 1f)
+                            LinearProgressIndicator(
+                                progress = { dbProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp),
+                                color = if (liveDb > 50f) IosOrange else Color(0xFF29B6F6),
+                                trackColor = Color.White.copy(alpha = 0.08f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (isMicResponsive) "🟢 麦克风灵敏 · 成功检测到吹气或人声波形" else "💡 请对着麦克风轻吹一口气或说话，查看音量条跳跃",
+                                color = if (isMicResponsive) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.45f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
                     // 1. REM 触梦周期选择
                     ConfigSectionCard(title = "🎯 目标触发窗口") {
                         val modes = listOf(
@@ -246,31 +364,34 @@ fun RemDreamConfigDialog(
                         )
                     }
 
-                    // 6. 白天试听与体验按钮
+                    // 6. 白天试听与体验按钮 (支持随时退出)
                     Button(
                         onClick = {
-                            isSimulating = !isSimulating
-                            onSimulateCue()
+                            if (isSimulatingService) {
+                                SleepTrackingService.stopSimulateCue(context)
+                            } else {
+                                onSimulateCue()
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isSimulating) IosRed.copy(alpha = 0.25f) else Color(0xFF221815)
+                            containerColor = if (isSimulatingService) IosRed.copy(alpha = 0.25f) else Color(0xFF221815)
                         ),
-                        border = BorderStroke(1.dp, IosOrange.copy(alpha = 0.4f))
+                        border = BorderStroke(1.dp, if (isSimulatingService) IosRed.copy(alpha = 0.6f) else IosOrange.copy(alpha = 0.4f))
                     ) {
                         Icon(
-                            if (isSimulating) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            if (isSimulatingService) Icons.Default.Stop else Icons.Default.PlayArrow,
                             contentDescription = null,
-                            tint = IosOrange,
+                            tint = if (isSimulatingService) IosRed else IosOrange,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (isSimulating) "正在体验 15秒触梦 (点击可停止)" else "🎧 模拟试听触梦 (15秒体验)",
-                            color = IosOrange,
+                            if (isSimulatingService) "⏹ 停止触梦试听 (或轻触屏幕任意位置)" else "🎧 模拟试听触梦 (15秒体验 · 轻触屏幕可退)",
+                            color = if (isSimulatingService) IosRed else IosOrange,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium
                         )

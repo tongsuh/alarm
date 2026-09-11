@@ -137,6 +137,8 @@ class MainActivity : ComponentActivity() {
                     val isSleepTrackingRunning by SleepTrackingService.isServiceRunning.collectAsState()
                     val sleepStatusTitle by SleepTrackingService.liveStatusText.collectAsState()
                     val sleepStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
+                    val isPhoneFlat by SleepTrackingService.isPhoneFlat.collectAsState()
+                    val isWhiteNoiseActive by SleepTrackingService.isWhiteNoiseActive.collectAsState()
 
                     AlarmListScreen(
                         alarms = alarms,
@@ -179,6 +181,8 @@ class MainActivity : ComponentActivity() {
                         isSleepTrackingRunning = isSleepTrackingRunning,
                         sleepStatusTitle = sleepStatusTitle,
                         sleepStatusDetail = sleepStatusDetail,
+                        isPhoneFlat = isPhoneFlat,
+                        isWhiteNoiseActive = isWhiteNoiseActive,
                         onStartSleepTracking = { requestStartSleepTracking() },
                         onStopSleepTracking = { SleepTrackingService.stopTracking(this@MainActivity) },
                         onOpenSleepConfig = { isSleepConfigDialogOpen = true }

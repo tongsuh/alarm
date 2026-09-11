@@ -47,6 +47,7 @@ class SleepTrackingService : Service() {
         const val ACTION_START_TRACKING = "ACTION_START_TRACKING"
         const val ACTION_STOP_TRACKING = "ACTION_STOP_TRACKING"
         const val ACTION_SIMULATE_CUE = "ACTION_SIMULATE_CUE"
+        const val ACTION_DISMISS_CUE = "ACTION_DISMISS_CUE"
 
         private const val NOTIFICATION_ID = 77001
         private const val CUE_WEARABLE_NOTIFY_ID = 77002
@@ -54,11 +55,23 @@ class SleepTrackingService : Service() {
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
+        private val _isSimulatingCue = MutableStateFlow(false)
+        val isSimulatingCue: StateFlow<Boolean> = _isSimulatingCue.asStateFlow()
+
         private val _liveStatusText = MutableStateFlow("未开启")
         val liveStatusText: StateFlow<String> = _liveStatusText.asStateFlow()
 
         private val _liveDetailText = MutableStateFlow("点击开始今夜监测")
         val liveDetailText: StateFlow<String> = _liveDetailText.asStateFlow()
+
+        private val _isPhoneFlat = MutableStateFlow(true)
+        val isPhoneFlat: StateFlow<Boolean> = _isPhoneFlat.asStateFlow()
+
+        private val _isWhiteNoiseActive = MutableStateFlow(false)
+        val isWhiteNoiseActive: StateFlow<Boolean> = _isWhiteNoiseActive.asStateFlow()
+
+        private val _phoneTiltAngle = MutableStateFlow(0f)
+        val phoneTiltAngle: StateFlow<Float> = _phoneTiltAngle.asStateFlow()
 
         fun startTracking(context: Context) {
             val intent = Intent(context, SleepTrackingService::class.java).apply {
@@ -88,6 +101,13 @@ class SleepTrackingService : Service() {
                 context.startService(intent)
             }
         }
+
+        fun stopSimulateCue(context: Context) {
+            val intent = Intent(context, SleepTrackingService::class.java).apply {
+                action = ACTION_DISMISS_CUE
+            }
+            context.startService(intent)
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -116,8 +136,20 @@ class SleepTrackingService : Service() {
                 stopTrackingInternal()
                 return START_NOT_STICKY
             }
+            ACTION_DISMISS_CUE -> {
+                cueJob?.cancel()
+                cueJob = null
+                stopCueExecution()
+                _isSimulatingCue.value = false
+                if (!_isServiceRunning.value) {
+                    stopForeground(true)
+                    stopSelf()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_SIMULATE_CUE -> {
-                startForeground(NOTIFICATION_ID, buildKeepaliveNotification("触梦模拟试听中..."))
+                _isSimulatingCue.value = true
+                startForeground(NOTIFICATION_ID, buildKeepaliveNotification("触梦模拟试听中 · 轻触屏幕任意位置可立即退出"))
                 executeGentleCue("模拟试听体验", 15)
                 return START_NOT_STICKY
             }
@@ -155,6 +187,15 @@ class SleepTrackingService : Service() {
                     _liveDetailText.value = detail
                     updateNotification()
                 }
+            }
+            launch {
+                sleepEngine?.isPhoneFlat?.collect { _isPhoneFlat.value = it }
+            }
+            launch {
+                sleepEngine?.isWhiteNoiseActive?.collect { _isWhiteNoiseActive.value = it }
+            }
+            launch {
+                sleepEngine?.phoneTiltAngle?.collect { _phoneTiltAngle.value = it }
             }
         }
     }
@@ -202,9 +243,13 @@ class SleepTrackingService : Service() {
                 }
 
                 // 4. 倒计时持续 durationSec (默认 25 秒)，随后全自动静默退出！
-                delay(durationSec * 1000L)
             } finally {
                 stopCueExecution()
+                _isSimulatingCue.value = false
+                if (!_isServiceRunning.value) {
+                    stopForeground(true)
+                    stopSelf()
+                }
             }
         }
     }
@@ -242,13 +287,57 @@ class SleepTrackingService : Service() {
 
                 val frame = FrameLayout(this@SleepTrackingService).apply {
                     setBackgroundColor(baseColor)
+                    isClickable = true
+                    isFocusable = true
+
+                    // 轻触屏幕任意位置立即退出
+                    setOnClickListener {
+                        cueJob?.cancel()
+                        cueJob = null
+                        stopCueExecution()
+                        _isSimulatingCue.value = false
+                        if (!_isServiceRunning.value) {
+                            stopForeground(true)
+                            stopSelf()
+                        }
+                    }
+                    setOnTouchListener { _, _ ->
+                        cueJob?.cancel()
+                        cueJob = null
+                        stopCueExecution()
+                        _isSimulatingCue.value = false
+                        if (!_isServiceRunning.value) {
+                            stopForeground(true)
+                            stopSelf()
+                        }
+                        true
+                    }
+
                     val tv = TextView(this@SleepTrackingService).apply {
                         text = "✨ 正在做梦吗？看下手表时间..."
-                        setTextColor(Color.argb(160, 255, 255, 255))
+                        setTextColor(Color.argb(180, 255, 255, 255))
                         textSize = 18f
                         gravity = Gravity.CENTER
                     }
                     addView(tv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+
+                    // 底部醒目半透明退出提示胶囊
+                    val exitBadge = TextView(this@SleepTrackingService).apply {
+                        text = "✕ 轻触屏幕任意位置立即退出"
+                        setTextColor(Color.argb(240, 255, 159, 10))
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        setPadding(40, 20, 40, 20)
+                        setBackgroundColor(Color.argb(190, 18, 18, 22))
+                    }
+                    val badgeParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    ).apply {
+                        bottomMargin = 180
+                    }
+                    addView(exitBadge, badgeParams)
                 }
                 overlayView = frame
                 try {

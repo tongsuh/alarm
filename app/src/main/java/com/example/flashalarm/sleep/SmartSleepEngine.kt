@@ -74,6 +74,9 @@ class SmartSleepEngine(
     private val _respirationCv = MutableStateFlow(0f)
     val respirationCv: StateFlow<Float> = _respirationCv.asStateFlow()
 
+    private val _phoneTiltAngle = MutableStateFlow(0f)
+    val phoneTiltAngle: StateFlow<Float> = _phoneTiltAngle.asStateFlow()
+
     // 内部运行数据
     private var isEngineRunning = false
     private var startTimestamp = 0L
@@ -131,12 +134,16 @@ class SmartSleepEngine(
             val y = event.values[1]
             val z = event.values[2]
 
-            // 1. 平放姿态检查 (Z轴接近 9.8，X和Y较小)
-            val isFlat = abs(z) > 7.0f && abs(x) < 5.0f && abs(y) < 5.0f
+            // 1. 真实物理倾角计算 (与绝对水平面的夹角 0°~90°)
+            val totalAccel = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+            val tilt = if (totalAccel > 0.1f) {
+                kotlin.math.acos((abs(z) / totalAccel).coerceIn(0f, 1f)) * (180f / Math.PI.toFloat())
+            } else 0f
+            _phoneTiltAngle.value = tilt
+            val isFlat = tilt < 15.0f
             _isPhoneFlat.value = isFlat
 
             // 2. 微动加速度标量变化计算
-            val totalAccel = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
             val deltaA = abs(totalAccel - 9.80665f)
 
             // 翻身大幅动作阈值 (振动 > 1.2 m/s^2)
