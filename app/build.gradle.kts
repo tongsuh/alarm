@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.flashalarm"
         minSdk = 26 // Android 8.0+，完美兼容 Android 10 到 Android 14+
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.7.1"
+        versionCode = 10
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,6 +26,8 @@ android {
             storePassword = "android"
             keyAlias = "flashalarm"
             keyPassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
