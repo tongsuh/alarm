@@ -1,6 +1,5 @@
 package com.example.flashalarm.ui
 
-import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -8,10 +7,9 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,9 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,7 +27,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.flashalarm.sleep.SleepTrackingService
 import com.example.flashalarm.ui.theme.IosOrange
-import com.example.flashalarm.ui.theme.IosRed
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
@@ -59,18 +54,15 @@ class SleepModeActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setupNightWindow()
         super.onCreate(savedInstanceState)
 
-        setupNightWindow()
         hideSystemUI()
 
         setContent {
             SleepModeContent(
                 onExitSleep = {
                     SleepTrackingService.stopTracking(this@SleepModeActivity)
-                    finish()
-                },
-                onMinimize = {
                     finish()
                 }
             )
@@ -82,13 +74,10 @@ class SleepModeActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(false)
-            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-            km?.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
             )
         }
 
@@ -112,23 +101,16 @@ class SleepModeActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemUI()
-        // 若服务已停止，自动退出
-        if (!SleepTrackingService.isServiceRunning.value) {
-            finish()
-        }
     }
 }
 
 @Composable
 private fun SleepModeContent(
-    onExitSleep: () -> Unit,
-    onMinimize: () -> Unit
+    onExitSleep: () -> Unit
 ) {
-    val liveStatusTitle by SleepTrackingService.liveStatusText.collectAsState()
     val liveStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
     val isPhoneFlat by SleepTrackingService.isPhoneFlat.collectAsState()
     val phoneTiltAngle by SleepTrackingService.phoneTiltAngle.collectAsState()
-    val isWhiteNoiseActive by SleepTrackingService.isWhiteNoiseActive.collectAsState()
 
     // 每秒刷新时间
     var currentTimeStr by remember { mutableStateOf(getFormattedTime()) }
@@ -142,213 +124,110 @@ private fun SleepModeContent(
         }
     }
 
-    // 呼吸微光动画
-    val infiniteTransition = rememberInfiniteTransition(label = "breathe")
-    val breatheAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "breatheAlpha"
-    )
-
+    // 全屏纯黑，点击任意区域立即退出
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .clickable { onExitSleep() },
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 36.dp),
+                .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 顶部：极简暗色状态标识
+            // 顶部：极简暗色状态或姿态告警
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 16.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .background(
-                                if (isPhoneFlat) IosOrange.copy(alpha = breatheAlpha) else Color(0xFFFF453A),
-                                CircleShape
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                if (!isPhoneFlat) {
                     Text(
-                        text = if (isPhoneFlat) "💤 正在感知入眠与后半夜梦境" else "⚠️ 手机倾斜 ${phoneTiltAngle.toInt()}° · 请平放于床面",
-                        color = if (isPhoneFlat) Color.White.copy(alpha = 0.5f) else Color(0xFFFF5252).copy(alpha = 0.8f),
-                        fontSize = 13.sp,
+                        text = "⚠️ 手机倾斜 ${phoneTiltAngle.toInt()}° · 请平放于床面",
+                        color = Color(0xFFFF5252).copy(alpha = 0.75f),
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .background(IosOrange.copy(alpha = 0.6f), CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "正在感知睡眠与后半夜梦境",
+                            color = Color.White.copy(alpha = 0.3f),
+                            fontSize = 11.sp
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = liveStatusDetail,
-                    color = Color.White.copy(alpha = 0.35f),
+                    color = Color.White.copy(alpha = 0.2f),
+                    fontSize = 10.sp
+                )
+            }
+
+            // 中部：黑屏 + 小数字时间界面 (柔和小尺寸，夜间零刺眼)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = currentTimeStr,
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 32.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 1.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = currentDateStr,
+                    color = Color.White.copy(alpha = 0.22f),
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "轻触屏幕任意位置退出",
+                    color = Color.White.copy(alpha = 0.18f),
                     fontSize = 11.sp
                 )
             }
 
-            // 中部：柔和极暗大时钟 (专为暗夜保护视力设计)
+            // 底部：明确的点击退出按钮 (点击即刻退出，无需长按)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = currentTimeStr,
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 72.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 2.sp
-                )
-
-                Text(
-                    text = currentDateStr,
-                    color = Color.White.copy(alpha = 0.3f),
-                    fontSize = 14.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 暗夜状态胶囊
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SleepBadge(
-                        text = if (isPhoneFlat) "床垫平放" else "倾斜需平放",
-                        isGood = isPhoneFlat
-                    )
-                    SleepBadge(
-                        text = if (isWhiteNoiseActive) "白噪音避让" else "麦克风抗噪",
-                        isGood = true
-                    )
-                }
-            }
-
-            // 底部：防误触【长按 2 秒退出】胶囊按钮
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "可按电源键正常熄屏 · 后台持续低功耗守护",
-                    color = Color.White.copy(alpha = 0.25f),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                HoldToExitSleepButton(onHoldComplete = onExitSleep)
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                TextButton(
-                    onClick = onMinimize,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                OutlinedButton(
+                    onClick = onExitSleep,
+                    modifier = Modifier.height(38.dp),
+                    shape = RoundedCornerShape(19.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF0E0E11)),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp)
                 ) {
                     Text(
-                        text = "查看闹钟列表 (后台继续监测)",
-                        color = Color.White.copy(alpha = 0.35f),
-                        fontSize = 11.sp
+                        text = "点击退出监测",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-            }
-        }
-    }
-}
 
-/**
- * 仿成熟睡眠 App 的【长按 2 秒防误触退出按钮】
- */
-@Composable
-private fun HoldToExitSleepButton(onHoldComplete: () -> Unit) {
-    var progress by remember { mutableFloatStateOf(0f) }
-    var isPressed by remember { mutableStateOf(false) }
+                Spacer(modifier = Modifier.height(10.dp))
 
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            val startTime = System.currentTimeMillis()
-            val holdDurationMs = 1800f
-            while (isPressed && progress < 1f) {
-                val elapsed = System.currentTimeMillis() - startTime
-                progress = (elapsed / holdDurationMs).coerceIn(0f, 1f)
-                if (progress >= 1f) {
-                    onHoldComplete()
-                    break
-                }
-                delay(16L)
-            }
-        } else {
-            progress = 0f
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth(0.72f)
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF141418))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    }
+                Text(
+                    text = "可按电源键正常熄屏 · 后台持续低功耗守护",
+                    color = Color.White.copy(alpha = 0.18f),
+                    fontSize = 10.sp
                 )
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        // 进度填充背景
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(progress)
-                .background(IosRed.copy(alpha = 0.45f))
-        )
-
-        // 按钮表面边框与文字
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Transparent, RoundedCornerShape(24.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isPressed) "按住不放以结束..." else "长按结束监测",
-                color = if (isPressed) Color.White else Color.White.copy(alpha = 0.45f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-private fun SleepBadge(text: String, isGood: Boolean) {
-    Box(
-        modifier = Modifier
-            .background(Color(0xFF0F0F12), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(4.dp)
-                    .background(if (isGood) Color(0xFF4CAF50) else Color(0xFFFF5252), CircleShape)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = text,
-                color = Color.White.copy(alpha = 0.4f),
-                fontSize = 10.sp
-            )
+            }
         }
     }
 }

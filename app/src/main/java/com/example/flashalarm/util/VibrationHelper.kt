@@ -108,6 +108,7 @@ object VibrationHelper {
     fun playPreview(
         context: Context,
         patternType: VibrationPatternType,
+        durationMs: Long = 4500L,
         onFinished: (() -> Unit)? = null
     ) {
         stopPreview(context)
@@ -126,11 +127,12 @@ object VibrationHelper {
         activeVibrator = vibrator
 
         try {
+            val repeatIndex = if (durationMs > 4500L) 0 else -1
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, repeatIndex))
             } else {
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, -1)
+                vibrator?.vibrate(pattern, repeatIndex)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -143,7 +145,7 @@ object VibrationHelper {
 
         previewJob = helperScope.launch {
             val startTime = System.currentTimeMillis()
-            val totalDurationMs = 4500L
+            val totalDurationMs = durationMs
             var cadenceIndex = 0
             var pulseCount = 0
 
@@ -156,8 +158,8 @@ object VibrationHelper {
                 try {
                     val notification = NotificationCompat.Builder(context, channelId)
                         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                        .setContentTitle("📳 ${patternType.title} · 试震中")
-                        .setContentText("手环正在以【${patternType.title}】专属节奏感知律动...")
+                        .setContentTitle("✨ 清醒梦触梦微震")
+                        .setContentText("正在以【${patternType.title}】专属节奏微震提醒...")
                         .setPriority(NotificationCompat.PRIORITY_MAX)
                         .setCategory(NotificationCompat.CATEGORY_ALARM)
                         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

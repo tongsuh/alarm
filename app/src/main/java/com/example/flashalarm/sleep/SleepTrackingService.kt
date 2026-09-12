@@ -13,6 +13,7 @@ import android.media.MediaPlayer
 import android.os.*
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -75,6 +76,7 @@ class SleepTrackingService : Service() {
         val phoneTiltAngle: StateFlow<Float> = _phoneTiltAngle.asStateFlow()
 
         fun startTracking(context: Context) {
+            _isServiceRunning.value = true
             val intent = Intent(context, SleepTrackingService::class.java).apply {
                 action = ACTION_START_TRACKING
             }
@@ -86,6 +88,7 @@ class SleepTrackingService : Service() {
         }
 
         fun stopTracking(context: Context) {
+            _isServiceRunning.value = false
             val intent = Intent(context, SleepTrackingService::class.java).apply {
                 action = ACTION_STOP_TRACKING
             }
@@ -240,10 +243,11 @@ class SleepTrackingService : Service() {
 
                 // 3. 联动智能手环心跳微震 (Macro Cadence Heartbeat 节拍)
                 if (config.isVibrationEnabled) {
-                    startWearableVibrationPulse(config.vibrationPatternId, reason)
+                    startWearableVibrationPulse(config.vibrationPatternId, reason, durationSec)
                 }
 
-                // 4. 倒计时持续 durationSec (默认 25 秒)，随后全自动静默退出！
+                // 4. 关键修复：持续执行 durationSec 秒，随后全自动静默退出！
+                delay(durationSec * 1000L)
             } finally {
                 stopCueExecution()
                 _isSimulatingCue.value = false
@@ -286,32 +290,39 @@ class SleepTrackingService : Service() {
                     screenBrightness = targetBrightness
                 }
 
+                val createTime = System.currentTimeMillis()
                 val frame = FrameLayout(this@SleepTrackingService).apply {
                     setBackgroundColor(baseColor)
                     isClickable = true
                     isFocusable = true
 
-                    // 轻触屏幕任意位置立即退出
+                    // 轻触屏幕任意位置立即退出 (加 300ms 保护，避免点击触发按钮的手指误直接触发退出)
                     setOnClickListener {
-                        cueJob?.cancel()
-                        cueJob = null
-                        stopCueExecution()
-                        _isSimulatingCue.value = false
-                        if (!_isServiceRunning.value) {
-                            stopForeground(true)
-                            stopSelf()
+                        if (System.currentTimeMillis() - createTime > 300L) {
+                            cueJob?.cancel()
+                            cueJob = null
+                            stopCueExecution()
+                            _isSimulatingCue.value = false
+                            if (!_isServiceRunning.value) {
+                                stopForeground(true)
+                                stopSelf()
+                            }
                         }
                     }
-                    setOnTouchListener { _, _ ->
-                        cueJob?.cancel()
-                        cueJob = null
-                        stopCueExecution()
-                        _isSimulatingCue.value = false
-                        if (!_isServiceRunning.value) {
-                            stopForeground(true)
-                            stopSelf()
+                    setOnTouchListener { _, event ->
+                        if (System.currentTimeMillis() - createTime > 300L && event.action == MotionEvent.ACTION_UP) {
+                            cueJob?.cancel()
+                            cueJob = null
+                            stopCueExecution()
+                            _isSimulatingCue.value = false
+                            if (!_isServiceRunning.value) {
+                                stopForeground(true)
+                                stopSelf()
+                            }
+                            true
+                        } else {
+                            false
                         }
-                        true
                     }
 
                     val tv = TextView(this@SleepTrackingService).apply {
@@ -356,28 +367,44 @@ class SleepTrackingService : Service() {
     private fun startWhisperAudio(volume: Float) {
         try {
             mediaPlayer?.release()
-            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_custom)?.apply {
+            mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                setVolume(volume, volume)
-                isLooping = true
-                start()
+                val afd = resources.openRawResourceFd(R.raw.alarm_custom)
+                if (afd != null) {
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    afd.close()
+                    prepare()
+                    setVolume(volume, volume)
+                    isLooping = true
+                    start()
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // 降级直接创建播放
+            try {
+                mediaPlayer = MediaPlayer.create(this, R.raw.alarm_custom)?.apply {
+                    setVolume(volume, volume)
+                    isLooping = true
+                    start()
+                }
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
         }
     }
 
     /**
      * 触发手环心跳微震
      */
-    private fun startWearableVibrationPulse(patternId: String, reason: String) {
+    private fun startWearableVibrationPulse(patternId: String, reason: String, durationSec: Int) {
         val patternType = VibrationPatternType.fromId(patternId)
-        VibrationHelper.playPreview(this, patternType)
+        VibrationHelper.playPreview(this, patternType, durationMs = durationSec * 1000L)
     }
 
     private fun stopCueExecution() {
