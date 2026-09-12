@@ -272,11 +272,12 @@ fun AlarmListScreen(
                             Text("结束", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.4f),
-                            modifier = Modifier.size(16.dp)
+                        Text(
+                            text = "›",
+                            fontSize = 22.sp,
+                            color = Color.White.copy(alpha = 0.4f),
+                            fontWeight = FontWeight.Light,
+                            modifier = Modifier.padding(end = 4.dp)
                         )
                     }
                 }
