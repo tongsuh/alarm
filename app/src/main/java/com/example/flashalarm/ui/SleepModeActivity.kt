@@ -7,9 +7,11 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,9 +19,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -31,16 +41,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 /**
  * 专为夜间就寝打造的纯黑极暗睡眠态 Activity (SleepModeActivity)
  *
- * 彻底参考成熟睡眠软件 (Sleep as Android / Sleep Cycle) 的设计规范：
- * 1. OLED 纯黑真夜间模式：全屏 0xFF000000 黑色背景，硬件极低背光 (0.01f)，完全不刺眼、不抑制褪黑素。
- * 2. 弱光大时钟屏保：柔和微光时钟 + 实时微动守护状态。
- * 3. 锁屏全兼容：支持按物理电源键直接熄屏（后台服务无缝持续监测）；也支持夜间亮屏时在锁屏上极暗常驻看时间。
- * 4. 防翻身误触：采用【长按 2 秒结束】保护机制，杜绝夜间手臂压到屏幕误关监测。
- * 5. 实时平放姿态预警：检测到手机斜靠或竖立时，柔和提示请平放于床垫。
+ * 交互架构：
+ * 1. 退出黑屏界面 (临时离开看手机)：轻触屏幕任意空白区域即可返回主界面，后台睡眠感知持续低功耗守护。
+ * 2. 结束睡眠追踪 (晨起结算)：底部防误触【▷ 向右滑动结束睡眠】滑块，只有滑动达到阈值才真正终止服务并封存报告。
  */
 class SleepModeActivity : ComponentActivity() {
 
@@ -61,7 +69,12 @@ class SleepModeActivity : ComponentActivity() {
 
         setContent {
             SleepModeContent(
-                onExitSleep = {
+                onExitBedsideScreen = {
+                    // 仅退出当前黑屏时钟界面，后台睡眠感知继续运行！
+                    finish()
+                },
+                onStopSleepTracking = {
+                    // 晨起结算：滑块确认退出睡眠追踪
                     SleepTrackingService.stopTracking(this@SleepModeActivity)
                     finish()
                 }
@@ -70,21 +83,17 @@ class SleepModeActivity : ComponentActivity() {
     }
 
     private fun setupNightWindow() {
-        // 允许在锁屏上显示，熄屏点亮不刺眼
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(false)
         } else {
             @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-            )
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         }
 
-        // 常驻屏幕（用户也可随时按物理电源键熄屏）
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // 极暗屏幕背光重载 (0.015f)，OLED 零光污染
+        // 极暗屏幕背光 (0.015f)，夜间床头零刺眼
         val lp = window.attributes
         lp.screenBrightness = 0.015f
         window.attributes = lp
@@ -106,13 +115,13 @@ class SleepModeActivity : ComponentActivity() {
 
 @Composable
 private fun SleepModeContent(
-    onExitSleep: () -> Unit
+    onExitBedsideScreen: () -> Unit,
+    onStopSleepTracking: () -> Unit
 ) {
     val liveStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
     val isPhoneFlat by SleepTrackingService.isPhoneFlat.collectAsState()
     val phoneTiltAngle by SleepTrackingService.phoneTiltAngle.collectAsState()
 
-    // 每秒刷新时间
     var currentTimeStr by remember { mutableStateOf(getFormattedTime()) }
     var currentDateStr by remember { mutableStateOf(getFormattedDate()) }
 
@@ -124,22 +133,27 @@ private fun SleepModeContent(
         }
     }
 
-    // 全屏纯黑，点击任意区域立即退出
+    // 全屏纯黑背景，点击背景空白区域仅退出黑屏界面 (后台持续守护)
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable { onExitSleep() },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onExitBedsideScreen()
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .padding(horizontal = 24.dp, vertical = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 顶部：极简暗色状态或姿态告警
+            // 顶部：微弱暗色状态或倾角姿态提示
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 16.dp)
@@ -174,12 +188,12 @@ private fun SleepModeContent(
                 )
             }
 
-            // 中部：黑屏 + 小数字时间界面 (柔和小尺寸，夜间零刺眼)
+            // 中部：黑屏 + 小数字时间显示
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = currentTimeStr,
                     color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 32.sp,
+                    fontSize = 34.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Light,
                     letterSpacing = 1.sp
@@ -193,41 +207,146 @@ private fun SleepModeContent(
                     fontSize = 12.sp
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "轻触屏幕任意位置退出",
+                    text = "轻触屏幕任意位置可返回主页 (后台持续守护)",
                     color = Color.White.copy(alpha = 0.18f),
                     fontSize = 11.sp
                 )
             }
 
-            // 底部：明确的点击退出按钮 (点击即刻退出，无需长按)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                OutlinedButton(
-                    onClick = onExitSleep,
-                    modifier = Modifier.height(38.dp),
-                    shape = RoundedCornerShape(19.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF0E0E11)),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        text = "点击退出监测",
-                        color = Color.White.copy(alpha = 0.55f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+            // 底部：防误触滑动滑块 (Slide to Stop Tracking)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        // 拦截滑块区域点击，防止误触发背景点击
+                    }
+            ) {
+                SlideToStopTrackingSlider(
+                    onStop = onStopSleepTracking,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "可按电源键正常熄屏 · 后台持续低功耗守护",
+                    text = "可按电源键熄屏 · 整夜低功耗后台运行",
                     color = Color.White.copy(alpha = 0.18f),
                     fontSize = 10.sp
                 )
             }
+        }
+    }
+}
+
+/**
+ * 成熟高质感滑动结束睡眠滑块 (Slide to Stop)
+ */
+@Composable
+private fun SlideToStopTrackingSlider(
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+
+    var trackWidthPx by remember { mutableFloatStateOf(0f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    val thumbSizeDp = 48.dp
+    val thumbSizePx = with(density) { thumbSizeDp.toPx() }
+
+    val maxDragRange = (trackWidthPx - thumbSizePx - with(density) { 8.dp.toPx() }).coerceAtLeast(1f)
+    val progress = (offsetX / maxDragRange).coerceIn(0f, 1f)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF141416))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(28.dp))
+            .onSizeChanged { size ->
+                trackWidthPx = size.width.toFloat()
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // 背景渐变填充光效 (随滑动展开)
+        if (progress > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(0xFF9B51E0).copy(alpha = 0.25f),
+                                Color(0xFFFF9F0A).copy(alpha = 0.45f)
+                            )
+                        )
+                    )
+            )
+        }
+
+        // 中间提示文案 (随滑动渐隐)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "▷ 向右滑动结束睡眠",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = (1f - progress * 1.4f).coerceIn(0.1f, 0.65f)),
+                letterSpacing = 1.sp
+            )
+        }
+
+        // 滑块圆形手柄 (可横向拖拽)
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .padding(4.dp)
+                .size(thumbSizeDp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFFFF9F0A), Color(0xFFE65100))
+                    )
+                )
+                .pointerInput(maxDragRange) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (offsetX >= maxDragRange * 0.72f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onStop()
+                            } else {
+                                offsetX = 0f
+                            }
+                        },
+                        onDragCancel = {
+                            offsetX = 0f
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            offsetX = (offsetX + dragAmount).coerceIn(0f, maxDragRange)
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "☀",
+                fontSize = 20.sp,
+                color = Color.White
+            )
         }
     }
 }
