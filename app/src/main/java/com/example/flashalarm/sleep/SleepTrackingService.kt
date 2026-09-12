@@ -294,18 +294,6 @@ class SleepTrackingService : Service() {
         stopSelf()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        try {
-            unregisterReceiver(screenReceiver)
-        } catch (_: Exception) {}
-        if (activeInstance == this) {
-            activeInstance = null
-        }
-        serviceJob?.cancel()
-        serviceScope.cancel()
-    }
-
     /**
      * 执行三合一温和触梦提醒 (屏幕暗红呼吸 + 耳边轻语 + 手环微震)
      */
@@ -565,5 +553,6 @@ class SleepTrackingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopTrackingInternal()
+        serviceScope.cancel()
     }
 }
