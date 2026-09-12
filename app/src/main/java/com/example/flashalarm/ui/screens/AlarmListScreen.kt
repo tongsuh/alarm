@@ -273,10 +273,10 @@ fun AlarmListScreen(
                         }
                     } else {
                         Icon(
-                            Icons.Default.ArrowForwardIos,
+                            Icons.Default.ChevronRight,
                             contentDescription = null,
                             tint = Color.White.copy(alpha = 0.4f),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }

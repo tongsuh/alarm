@@ -51,6 +51,7 @@ import androidx.compose.material3.*
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -362,6 +363,7 @@ class MainActivity : ComponentActivity() {
                             containerColor = IosCardSurface
                         )
                     }
+                }
             }
         }
     }
