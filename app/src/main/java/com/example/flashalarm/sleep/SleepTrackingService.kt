@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.media.AudioAttributes
@@ -155,7 +156,12 @@ class SleepTrackingService : Service() {
             }
             ACTION_SIMULATE_CUE -> {
                 _isSimulatingCue.value = true
-                startForeground(NOTIFICATION_ID, buildKeepaliveNotification("触梦模拟试听中 · 轻触屏幕任意位置可立即退出"))
+                val notification = buildKeepaliveNotification("触梦模拟试听中 · 轻触屏幕任意位置可立即退出")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
                 executeGentleCue("模拟试听体验", 15)
                 return START_NOT_STICKY
             }
@@ -167,11 +173,26 @@ class SleepTrackingService : Service() {
     }
 
     private fun startTrackingInternal() {
-        if (_isServiceRunning.value) return
+        if (sleepEngine != null) return
         _isServiceRunning.value = true
 
         acquireWakeLock()
-        startForeground(NOTIFICATION_ID, buildKeepaliveNotification("就寝放置中 · 正在准备校准..."))
+        val notification = buildKeepaliveNotification("就寝放置中 · 正在准备校准...")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
         val config = configRepo.getConfig()
         sleepEngine = SmartSleepEngine(
