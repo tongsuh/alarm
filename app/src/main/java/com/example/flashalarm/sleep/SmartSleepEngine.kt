@@ -43,8 +43,8 @@ class SmartSleepEngine(
     enum class EngineState(val displayText: String) {
         IDLE("未开启"),
         CALIBRATING_30S("就寝放置校准中 (30秒)"),
-        TRACKING_SLEEP_ONSET("入睡感知中 · 平息监测"),
-        CONFIRMED_ASLEEP("已确认入睡 · 守护后半夜梦境"),
+        TRACKING_SLEEP_ONSET("清醒中 · 正在感知入眠"),
+        CONFIRMED_ASLEEP("已入睡 · 守护后半夜梦境"),
         REM_WINDOW_ACTIVE("已进入黄金梦境搜索带"),
         CUE_COOLDOWN("触梦沉浸保护中")
     }
@@ -112,6 +112,7 @@ class SmartSleepEngine(
     private var epochValidBreathCount = 0
     private var epochMaxMovement = 0f
     private var epochTurnoverInMinute = 0
+    private var epochUserInteractedInMinute = false
     private var epochCueTriggered = false
 
     // 录音线程控制
@@ -142,6 +143,7 @@ class SmartSleepEngine(
         epochValidBreathCount = 0
         epochMaxMovement = 0f
         epochTurnoverInMinute = 0
+        epochUserInteractedInMinute = false
         epochCueTriggered = false
 
         playbackMonitor.startMonitoring()
@@ -153,6 +155,40 @@ class SmartSleepEngine(
 
         startAudioRecording()
         startLogicLoop()
+    }
+
+    /**
+     * 响应来自屏幕触摸或手机解锁的主动交互 (最高优先级清醒判定依据)
+     */
+    fun notifyUserInteraction() {
+        if (!isEngineRunning) return
+        val now = System.currentTimeMillis()
+        lastMovementTimestamp = now
+        consecutiveStillSeconds = 0
+        epochUserInteractedInMinute = true
+
+        if (sleepOnsetTimestamp == 0L) {
+            // 阶段 1：未入睡状态下用户点按屏幕，确凿清醒，重置入睡计时
+            _engineState.value = EngineState.TRACKING_SLEEP_ONSET
+            _statusDetail.value = "清醒中 · 正在感知入眠"
+        } else {
+            val minutesAsleep = ((now - sleepOnsetTimestamp) / (60 * 1000L)).toInt()
+            if (minutesAsleep < 30) {
+                // 阶段 2：刚判定入睡不足 30 分钟即发生屏幕交互，判定为假阳性（此前并没真正睡着或刚闭眼又醒了）
+                // 彻底撤回误判入睡点，重新回到清醒状态！
+                sleepOnsetTimestamp = 0L
+                _engineState.value = EngineState.TRACKING_SLEEP_ONSET
+                _statusDetail.value = "清醒中 · 正在感知入眠"
+            } else {
+                // 阶段 3：已真正入睡超 30 分钟，夜间看手机判定为夜间中途微觉醒 (WASO)
+                awakeMinutes++
+                if (isRemTrackingActive) {
+                    _statusDetail.value = "夜间清醒中 · 触梦推迟以防惊醒"
+                } else {
+                    _statusDetail.value = "夜间微觉醒 · 睡眠守护中"
+                }
+            }
+        }
     }
 
     fun stopEngine(): SleepSession {
@@ -329,7 +365,7 @@ class SmartSleepEngine(
         if (noiseFilter.isConsciousVocalization && !_isWhiteNoiseActive.value) {
             lastMovementTimestamp = now
             consecutiveStillSeconds = 0
-            _statusDetail.value = "检测到清醒人声 · 一票否决入睡判定"
+            _statusDetail.value = "检测到清醒人声 · 清醒中"
             return
         }
 
@@ -345,17 +381,17 @@ class SmartSleepEngine(
             motionScore * 0.65f + acousticScore * 0.35f
         }
 
-        _statusDetail.value = if (isAcousticDegraded) {
-            "白噪音避让中 · 床垫已平息 ${stillMin} 分钟"
-        } else {
-            "微动与声学融合中 · 已平息 ${stillMin} 分钟"
+        _statusDetail.value = when {
+            _isWhiteNoiseActive.value -> if (stillMin == 0) "清醒中 · 助眠音乐播放中" else "助眠音乐播放中 · 身体已静止 ${stillMin} 分钟"
+            stillMin == 0 -> "清醒中 · 正在感知入眠"
+            else -> "清醒中 · 身体已静止 ${stillMin} 分钟"
         }
 
         val canConfirm = (isBreathingSteady && stillMin >= 7) || (stillMin >= 12)
         if (canConfirm && fusedScore >= 0.65f) {
             sleepOnsetTimestamp = now
             _engineState.value = EngineState.CONFIRMED_ASLEEP
-            _statusDetail.value = "已确认入睡 · 锁定入睡点，静默守护后半夜"
+            _statusDetail.value = "已入睡 · 黄金梦境守护中"
         }
     }
 
@@ -363,8 +399,13 @@ class SmartSleepEngine(
      * 第二阶段：REM 动态自适应捕捉与退出闭环
      */
     private fun evaluateRemTracking(now: Long) {
-        val minutesAsleep = ((now - sleepOnsetTimestamp) / (60 * 1000L)).toInt()
+        val minutesAsleep = ((now - sleepOnsetTimestamp) / (60 * 1000L)).toInt().coerceAtLeast(1)
         val hoursAsleep = minutesAsleep / 60f
+        val sleepDurationStr = if (hoursAsleep < 1.0f) {
+            "已入睡 ${minutesAsleep} 分钟"
+        } else {
+            "已入睡 ${hoursAsleep.format(1)} 小时"
+        }
 
         // ===== 动态 REM 进行中跟踪与退出捕获 =====
         if (isRemTrackingActive) {
@@ -375,7 +416,7 @@ class SmartSleepEngine(
             if (elapsedMs < 8 * 60 * 1000L) {
                 _engineState.value = EngineState.CUE_COOLDOWN
                 val remainMin = ((8 * 60 * 1000L - elapsedMs) / 60000L) + 1
-                _statusDetail.value = "✨ 触梦已执行 · 梦境沉浸守护中 (${remainMin}m)"
+                _statusDetail.value = "✨ 触梦已执行 · 梦境沉浸中 (${remainMin}m)"
                 return
             }
 
@@ -420,7 +461,7 @@ class SmartSleepEngine(
 
         if (!inCycle4 && !inCycle5) {
             _engineState.value = EngineState.CONFIRMED_ASLEEP
-            _statusDetail.value = "已沉睡 ${hoursAsleep.format(1)}h · 距下个黄金梦境窗还有 ${calculateTimeUntilNextWindow(hoursAsleep)}"
+            _statusDetail.value = "$sleepDurationStr · 距下个黄金梦境窗还有 ${calculateTimeUntilNextWindow(hoursAsleep)}"
             return
         }
 
@@ -445,19 +486,19 @@ class SmartSleepEngine(
             return
         }
 
-        _statusDetail.value = "🔍 正在扫描 $currentCycleLabel · 身体静止 ${stillMinutes}m (待命中)"
+        _statusDetail.value = "🔍 正在扫描 $currentCycleLabel · $sleepDurationStr"
     }
 
     private fun triggerCueNow(cycleLabel: String, reason: String, isCycle4: Boolean) {
-        val now = System.currentTimeMillis()
-        if (isCycle4) cycle4Triggered = true else cycle5Triggered = true
-
+        if (isRemTrackingActive) return
         isRemTrackingActive = true
-        activeRemStartTimestamp = now
+        activeRemStartTimestamp = System.currentTimeMillis()
         activeRemCycleName = cycleLabel
         steadyBreathConsecutiveSeconds = 0
-        epochCueTriggered = true
         remCueTriggerCount++
+        epochCueTriggered = true
+
+        if (isCycle4) cycle4Triggered = true else cycle5Triggered = true
 
         _engineState.value = EngineState.CUE_COOLDOWN
         _statusDetail.value = "✨ 正在触发清醒梦触梦 ($reason)"
@@ -483,8 +524,8 @@ class SmartSleepEngine(
             // 处于活跃 REM 梦境中
             isRemTrackingActive -> SleepStage.REM
 
-            // 发生了剧烈翻身或清醒说话
-            epochTurnoverInMinute > 0 || consecutiveStillSeconds < 25 -> SleepStage.AWAKE
+            // 发生了剧烈翻身、屏幕操作或短时频繁移动
+            epochTurnoverInMinute > 0 || epochUserInteractedInMinute || consecutiveStillSeconds < 25 -> SleepStage.AWAKE
 
             else -> {
                 val stillMin = consecutiveStillSeconds / 60
@@ -524,6 +565,7 @@ class SmartSleepEngine(
         epochValidBreathCount = 0
         epochMaxMovement = 0f
         epochTurnoverInMinute = 0
+        epochUserInteractedInMinute = false
         epochCueTriggered = false
     }
 

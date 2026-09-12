@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -494,5 +495,14 @@ class MainActivity : ComponentActivity() {
                 e.printStackTrace()
             }
         }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (ev?.action == MotionEvent.ACTION_DOWN) {
+            if (SleepTrackingService.isServiceRunning.value) {
+                SleepTrackingService.notifyUserInteraction()
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 }

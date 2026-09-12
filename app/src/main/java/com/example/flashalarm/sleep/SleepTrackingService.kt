@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -113,6 +115,12 @@ class SleepTrackingService : Service() {
             }
             context.startService(intent)
         }
+
+        private var activeInstance: SleepTrackingService? = null
+
+        fun notifyUserInteraction() {
+            activeInstance?.sleepEngine?.notifyUserInteraction()
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -121,6 +129,14 @@ class SleepTrackingService : Service() {
     private lateinit var sleepRecordRepo: com.example.flashalarm.sleep.data.SleepRecordRepository
     private var serviceJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_USER_PRESENT) {
+                sleepEngine?.notifyUserInteraction()
+            }
+        }
+    }
 
     // 触梦执行资源
     private var mediaPlayer: MediaPlayer? = null
@@ -174,7 +190,15 @@ class SleepTrackingService : Service() {
 
     private fun startTrackingInternal() {
         if (sleepEngine != null) return
+        activeInstance = this
         _isServiceRunning.value = true
+
+        try {
+            val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+            registerReceiver(screenReceiver, filter)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         acquireWakeLock()
         val notification = buildKeepaliveNotification("就寝放置中 · 正在准备校准...")
@@ -241,6 +265,14 @@ class SleepTrackingService : Service() {
         cueJob = null
         stopCueExecution()
 
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+
+        if (activeInstance == this) {
+            activeInstance = null
+        }
+
         val finalSession = sleepEngine?.stopEngine()
         sleepEngine = null
 
@@ -260,6 +292,18 @@ class SleepTrackingService : Service() {
 
         stopForeground(true)
         stopSelf()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+        if (activeInstance == this) {
+            activeInstance = null
+        }
+        serviceJob?.cancel()
+        serviceScope.cancel()
     }
 
     /**
