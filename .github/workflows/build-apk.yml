@@ -46,18 +46,17 @@ jobs:
             -dname "CN=FlashAlarm, OU=App, O=FlashAlarm, L=Beijing, ST=Beijing, C=CN"
         fi
 
-    - name: Build Release and Debug APKs
+    - name: Build Release APK
       run: |
-        gradle assembleRelease assembleDebug --stacktrace
+        gradle assembleRelease --stacktrace
         mkdir -p release_apks
         cp app/build/outputs/apk/release/app-release.apk release_apks/FlashAlarm-v1.8.0.apk
-        cp app/build/outputs/apk/debug/app-debug.apk release_apks/FlashAlarm-v1.8.0-debug.apk
 
-    - name: Upload APK Artifacts
+    - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: FlashAlarm-apks
-        path: release_apks/*.apk
+        name: FlashAlarm-apk
+        path: release_apks/FlashAlarm-v1.8.0.apk
         retention-days: 7
 
     - name: Publish GitHub Release (Direct APK Download)
@@ -66,8 +65,9 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release delete v1.8.0 --yes --cleanup-tag 2>/dev/null || true
-        gh release create v1.8.0 release_apks/FlashAlarm-v1.8.0.apk release_apks/FlashAlarm-v1.8.0-debug.apk \
+        gh release create v1.8.0 release_apks/FlashAlarm-v1.8.0.apk \
           --title "FlashAlarm v1.8.0 (无需解压·手机直装)" \
           --notes-file RELEASE_NOTES.md \
           --latest
+
 
