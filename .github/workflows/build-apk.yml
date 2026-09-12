@@ -27,6 +27,24 @@ jobs:
       with:
         gradle-version: '8.7'
 
+    - name: Ensure Persistent Signing Keystore
+      run: |
+        if [ ! -f "app/release.keystore" ]; then
+          keytool -genkey -v \
+            -keystore app/release.keystore \
+            -storepass android \
+            -alias flashalarm \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=FlashAlarm, OU=App, O=FlashAlarm, L=Beijing, ST=Beijing, C=CN"
+          echo "===KEYSTORE_BASE64_START==="
+          base64 -w 0 app/release.keystore
+          echo ""
+          echo "===KEYSTORE_BASE64_END==="
+        fi
+
     - name: Build Debug APK
       run: |
         gradle assembleDebug --stacktrace

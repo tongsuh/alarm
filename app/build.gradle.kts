@@ -20,9 +20,22 @@ android {
         }
     }
 
+    signingConfigs {
+        create("shared") {
+            storeFile = file("release.keystore")
+            storePassword = "android"
+            keyAlias = "flashalarm"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
