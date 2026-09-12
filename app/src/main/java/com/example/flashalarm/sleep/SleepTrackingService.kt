@@ -117,6 +117,7 @@ class SleepTrackingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var sleepEngine: SmartSleepEngine? = null
     private lateinit var configRepo: RemDreamRepository
+    private lateinit var sleepRecordRepo: com.example.flashalarm.sleep.data.SleepRecordRepository
     private var serviceJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -129,6 +130,7 @@ class SleepTrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         configRepo = RemDreamRepository(this)
+        sleepRecordRepo = com.example.flashalarm.sleep.data.SleepRecordRepository(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
     }
 
@@ -172,9 +174,18 @@ class SleepTrackingService : Service() {
         startForeground(NOTIFICATION_ID, buildKeepaliveNotification("就寝放置中 · 正在准备校准..."))
 
         val config = configRepo.getConfig()
-        sleepEngine = SmartSleepEngine(this, config) { cycleReason ->
-            executeGentleCue(cycleReason, config.cueDurationSec)
-        }
+        sleepEngine = SmartSleepEngine(
+            context = this,
+            config = config,
+            onTriggerRemCue = { cycleReason ->
+                executeGentleCue(cycleReason, config.cueDurationSec)
+            },
+            onEpochGenerated = { epoch ->
+                serviceScope.launch(Dispatchers.IO) {
+                    sleepRecordRepo.insertEpochs(listOf(epoch))
+                }
+            }
+        )
         sleepEngine?.startEngine()
 
         // 监听状态流并更新状态栏通知与 UI
@@ -209,8 +220,14 @@ class SleepTrackingService : Service() {
         cueJob = null
         stopCueExecution()
 
-        sleepEngine?.stopEngine()
+        val finalSession = sleepEngine?.stopEngine()
         sleepEngine = null
+
+        if (finalSession != null) {
+            serviceScope.launch(Dispatchers.IO) {
+                sleepRecordRepo.saveSession(finalSession)
+            }
+        }
 
         serviceJob?.cancel()
         serviceJob = null

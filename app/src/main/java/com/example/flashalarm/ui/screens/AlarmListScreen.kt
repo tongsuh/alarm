@@ -31,7 +31,6 @@ import com.example.flashalarm.model.AlarmItem
 import com.example.flashalarm.model.FlashProfile
 import com.example.flashalarm.ui.theme.*
 
-import com.example.flashalarm.ui.components.SleepTrackingCard
 
 @Composable
 fun AlarmListScreen(
@@ -159,20 +158,6 @@ fun AlarmListScreen(
                 }
             }
 
-            // 清醒梦入眠感知与 REM 触梦卡片
-            SleepTrackingCard(
-                isTrackingRunning = isSleepTrackingRunning,
-                statusTitle = sleepStatusTitle,
-                statusDetail = sleepStatusDetail,
-                isPhoneFlat = isPhoneFlat,
-                isWhiteNoiseActive = isWhiteNoiseActive,
-                onStartTracking = onStartSleepTracking,
-                onStopTracking = onStopSleepTracking,
-                onOpenConfig = onOpenSleepConfig,
-                onOpenSleepScreen = onOpenSleepScreen,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-            )
-
             if (alarms.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -201,7 +186,8 @@ fun AlarmListScreen(
                         .fillMaxSize()
                         .weight(1f)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(alarms, key = { it.id }) { alarm ->
                         val profile = profiles.find { it.id == alarm.flashProfileId }
@@ -213,6 +199,84 @@ fun AlarmListScreen(
                             onToggle = { onToggleAlarm(alarm, it) },
                             onClick = { onEditAlarm(alarm) },
                             onLongClick = { alarmPendingDelete = alarm }
+                        )
+                    }
+                }
+            }
+
+            // 主流成熟睡眠 App 的一键就寝大按钮 (底部醒目常驻胶囊)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = if (isSleepTrackingRunning) Color(0xFF1C1A2E) else Color(0xFF141416),
+                border = BorderStroke(
+                    1.dp,
+                    if (isSleepTrackingRunning) Color(0xFF9B51E0).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.08f)
+                ),
+                onClick = {
+                    if (isSleepTrackingRunning) {
+                        onOpenSleepScreen()
+                    } else {
+                        onStartSleepTracking()
+                    }
+                }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (isSleepTrackingRunning) Color(0xFF9B51E0).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isSleepTrackingRunning) "💤" else "🌙",
+                                fontSize = 22.sp
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = if (isSleepTrackingRunning) "睡眠守护中 · 点击进入床头模式" else "开始今夜睡眠",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isSleepTrackingRunning) sleepStatusDetail else "自动感知入眠 · 后半夜清醒梦触梦",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.5f),
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    if (isSleepTrackingRunning) {
+                        TextButton(
+                            onClick = onStopSleepTracking,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red.copy(alpha = 0.8f))
+                        ) {
+                            Text("结束", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }

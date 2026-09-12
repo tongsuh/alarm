@@ -38,15 +38,29 @@ import com.example.flashalarm.ui.screens.FlashProfileManageDialog
 import com.example.flashalarm.sleep.RemDreamConfig
 import com.example.flashalarm.sleep.RemDreamRepository
 import com.example.flashalarm.sleep.SleepTrackingService
+import com.example.flashalarm.sleep.data.SleepRecordRepository
+import com.example.flashalarm.sleep.model.SleepSession
 import com.example.flashalarm.ui.dialogs.RemDreamConfigDialog
+import com.example.flashalarm.ui.screens.SleepDashboardScreen
 import com.example.flashalarm.ui.theme.*
 import com.example.flashalarm.util.AlarmAudioHelper
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.Color
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmRepo: AlarmRepository
     private lateinit var profileRepo: FlashProfileRepository
     private lateinit var remRepo: RemDreamRepository
+    private lateinit var sleepRecordRepo: SleepRecordRepository
 
     private var currentEditingAlarmId: Long = System.currentTimeMillis()
     private var selectedAudioUriState by mutableStateOf<String?>(null)
@@ -116,78 +130,140 @@ class MainActivity : ComponentActivity() {
         alarmRepo = AlarmRepository(this)
         profileRepo = FlashProfileRepository(this)
         remRepo = RemDreamRepository(this)
+        sleepRecordRepo = SleepRecordRepository(this)
 
         updateOverlayPermissionState()
         checkAndRequestPermissions()
 
         setContent {
             FlashAlarmTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = IosBackground
-                ) {
-                    var alarms by remember { mutableStateOf(alarmRepo.getAllAlarms()) }
-                    var profiles by remember { mutableStateOf(profileRepo.getAllProfiles()) }
+                var selectedTab by remember { mutableIntStateOf(0) }
+                val sessions by sleepRecordRepo.sessionsFlow.collectAsState()
+                val todayDateStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+                var selectedDateString by remember { mutableStateOf(todayDateStr) }
+                var currentSessionWithEpochs by remember { mutableStateOf<SleepSession?>(null) }
 
-                    var editingAlarm by remember { mutableStateOf<AlarmItem?>(null) }
-                    var isEditDialogOpen by remember { mutableStateOf(false) }
-                    var isProfileDialogOpen by remember { mutableStateOf(false) }
-                    var isSleepConfigDialogOpen by remember { mutableStateOf(false) }
+                LaunchedEffect(selectedDateString, sessions) {
+                    currentSessionWithEpochs = sleepRecordRepo.getSessionByDateWithEpochs(selectedDateString)
+                        ?: if (selectedDateString == todayDateStr && sessions.isNotEmpty()) {
+                            sleepRecordRepo.getSessionByDateWithEpochs(sessions.first().dateString)
+                        } else null
+                }
 
-                    val isSleepTrackingRunning by SleepTrackingService.isServiceRunning.collectAsState()
-                    val sleepStatusTitle by SleepTrackingService.liveStatusText.collectAsState()
-                    val sleepStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
-                    val isPhoneFlat by SleepTrackingService.isPhoneFlat.collectAsState()
-                    val isWhiteNoiseActive by SleepTrackingService.isWhiteNoiseActive.collectAsState()
+                var alarms by remember { mutableStateOf(alarmRepo.getAllAlarms()) }
+                var profiles by remember { mutableStateOf(profileRepo.getAllProfiles()) }
 
-                    AlarmListScreen(
-                        alarms = alarms,
-                        profiles = profiles,
-                        hasOverlayPermission = hasOverlayPermissionState,
-                        onRequestOverlayPermission = { requestOverlayPermission() },
-                        onToggleAlarm = { alarm, enabled ->
-                            val updated = alarm.copy(isEnabled = enabled)
-                            alarmRepo.saveAlarm(updated)
-                            if (enabled) {
-                                AlarmScheduler.scheduleAlarm(this@MainActivity, updated)
-                            } else {
-                                AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
-                            }
-                            alarms = alarmRepo.getAllAlarms()
-                        },
-                        onDeleteAlarm = { alarm ->
-                            AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
-                            AlarmAudioHelper.deleteInternalAudio(this@MainActivity, alarm.id)
-                            alarmRepo.deleteAlarm(alarm.id)
-                            alarms = alarmRepo.getAllAlarms()
-                        },
-                        onEditAlarm = { alarm ->
-                            editingAlarm = alarm
-                            currentEditingAlarmId = alarm.id
-                            selectedAudioUriState = alarm.ringtoneUri
-                            selectedAudioTitleState = alarm.ringtoneTitle
-                            isEditDialogOpen = true
-                        },
-                        onAddNewAlarm = {
-                            editingAlarm = null
-                            currentEditingAlarmId = System.currentTimeMillis()
-                            selectedAudioUriState = null
-                            selectedAudioTitleState = "默认闹钟铃声"
-                            isEditDialogOpen = true
-                        },
-                        onOpenProfileManager = {
-                            isProfileDialogOpen = true
-                        },
-                        isSleepTrackingRunning = isSleepTrackingRunning,
-                        sleepStatusTitle = sleepStatusTitle,
-                        sleepStatusDetail = sleepStatusDetail,
-                        isPhoneFlat = isPhoneFlat,
-                        isWhiteNoiseActive = isWhiteNoiseActive,
-                        onStartSleepTracking = { requestStartSleepTracking() },
-                        onStopSleepTracking = { SleepTrackingService.stopTracking(this@MainActivity) },
-                        onOpenSleepConfig = { isSleepConfigDialogOpen = true },
-                        onOpenSleepScreen = { SleepModeActivity.start(this@MainActivity) }
-                    )
+                var editingAlarm by remember { mutableStateOf<AlarmItem?>(null) }
+                var isEditDialogOpen by remember { mutableStateOf(false) }
+                var isProfileDialogOpen by remember { mutableStateOf(false) }
+                var isSleepConfigDialogOpen by remember { mutableStateOf(false) }
+
+                val isSleepTrackingRunning by SleepTrackingService.isServiceRunning.collectAsState()
+                val sleepStatusTitle by SleepTrackingService.liveStatusText.collectAsState()
+                val sleepStatusDetail by SleepTrackingService.liveDetailText.collectAsState()
+                val isPhoneFlat by SleepTrackingService.isPhoneFlat.collectAsState()
+                val isWhiteNoiseActive by SleepTrackingService.isWhiteNoiseActive.collectAsState()
+
+                Scaffold(
+                    containerColor = Color.Black,
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = Color(0xFF141416),
+                            tonalElevation = 0.dp
+                        ) {
+                            NavigationBarItem(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                icon = { Icon(Icons.Default.Alarm, contentDescription = "闹钟") },
+                                label = { Text("闹钟") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = IosOrange,
+                                    selectedTextColor = IosOrange,
+                                    unselectedIconColor = Color.White.copy(alpha = 0.4f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.4f),
+                                    indicatorColor = Color.Transparent
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                icon = { Icon(Icons.Default.Bedtime, contentDescription = "睡眠") },
+                                label = { Text("睡眠") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = IosOrange,
+                                    selectedTextColor = IosOrange,
+                                    unselectedIconColor = Color.White.copy(alpha = 0.4f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.4f),
+                                    indicatorColor = Color.Transparent
+                                )
+                            )
+                        }
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        if (selectedTab == 0) {
+                            AlarmListScreen(
+                                alarms = alarms,
+                                profiles = profiles,
+                                hasOverlayPermission = hasOverlayPermissionState,
+                                onRequestOverlayPermission = { requestOverlayPermission() },
+                                onToggleAlarm = { alarm, enabled ->
+                                    val updated = alarm.copy(isEnabled = enabled)
+                                    alarmRepo.saveAlarm(updated)
+                                    if (enabled) {
+                                        AlarmScheduler.scheduleAlarm(this@MainActivity, updated)
+                                    } else {
+                                        AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
+                                    }
+                                    alarms = alarmRepo.getAllAlarms()
+                                },
+                                onDeleteAlarm = { alarm ->
+                                    AlarmScheduler.cancelAlarm(this@MainActivity, alarm.id)
+                                    AlarmAudioHelper.deleteInternalAudio(this@MainActivity, alarm.id)
+                                    alarmRepo.deleteAlarm(alarm.id)
+                                    alarms = alarmRepo.getAllAlarms()
+                                },
+                                onEditAlarm = { alarm ->
+                                    editingAlarm = alarm
+                                    currentEditingAlarmId = alarm.id
+                                    selectedAudioUriState = alarm.ringtoneUri
+                                    selectedAudioTitleState = alarm.ringtoneTitle
+                                    isEditDialogOpen = true
+                                },
+                                onAddNewAlarm = {
+                                    editingAlarm = null
+                                    currentEditingAlarmId = System.currentTimeMillis()
+                                    selectedAudioUriState = null
+                                    selectedAudioTitleState = "默认闹钟铃声"
+                                    isEditDialogOpen = true
+                                },
+                                onOpenProfileManager = {
+                                    isProfileDialogOpen = true
+                                },
+                                isSleepTrackingRunning = isSleepTrackingRunning,
+                                sleepStatusTitle = sleepStatusTitle,
+                                sleepStatusDetail = sleepStatusDetail,
+                                isPhoneFlat = isPhoneFlat,
+                                isWhiteNoiseActive = isWhiteNoiseActive,
+                                onStartSleepTracking = { requestStartSleepTracking() },
+                                onStopSleepTracking = { SleepTrackingService.stopTracking(this@MainActivity) },
+                                onOpenSleepConfig = { isSleepConfigDialogOpen = true },
+                                onOpenSleepScreen = { SleepModeActivity.start(this@MainActivity) }
+                            )
+                        } else {
+                            SleepDashboardScreen(
+                                sessions = sessions,
+                                currentSession = currentSessionWithEpochs,
+                                selectedDateString = selectedDateString,
+                                onSelectDate = { selectedDateString = it },
+                                onOpenConfig = { isSleepConfigDialogOpen = true }
+                            )
+                        }
+                    }
 
                     // 清醒梦与 REM 触梦参数配置抽屉
                     if (isSleepConfigDialogOpen) {
@@ -286,7 +362,6 @@ class MainActivity : ComponentActivity() {
                             containerColor = IosCardSurface
                         )
                     }
-                }
             }
         }
     }
