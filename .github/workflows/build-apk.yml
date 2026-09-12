@@ -39,10 +39,6 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=FlashAlarm, OU=App, O=FlashAlarm, L=Beijing, ST=Beijing, C=CN"
-          echo "===KEYSTORE_BASE64_START==="
-          base64 -w 0 app/release.keystore
-          echo ""
-          echo "===KEYSTORE_BASE64_END==="
         fi
 
     - name: Build Debug APK
