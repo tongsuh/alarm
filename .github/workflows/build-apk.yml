@@ -68,13 +68,6 @@ jobs:
         gh release delete v1.8.0 --yes --cleanup-tag 2>/dev/null || true
         gh release create v1.8.0 release_apks/FlashAlarm-v1.8.0.apk release_apks/FlashAlarm-v1.8.0-debug.apk \
           --title "FlashAlarm v1.8.0 (无需解压·手机直装)" \
-          --notes "### 📱 FlashAlarm v1.8.0 手机直接安装版
-
-- **直接下载安装**：请直接点击下方 Assets 列表中的 \`FlashAlarm-v1.8.0.apk\`（推荐正式版）即可直接在手机上下载并安装，**无需解压**！
-- **固定持久签名**：已绑定专属持久化签名（支持 v1 + v2 签名方案），兼容各大国产安卓系统，安装完成后未来所有更新均支持直接平滑覆盖升级。
-- **本次更新**：
-  1. 独立【睡眠】分析Tab，呈现整夜 1 分钟切片与 Hypnogram 催眠时序阶梯图谱，标注重度触梦星标 ✨；
-  2. 极暗纯黑床头屏保，屏幕任意轻触仅退出界面返回系统（后台睡眠感知毫秒级不中断）；
-  3. 底部向右滑动结束睡眠滑块（Slide to Stop），防误触阻尼与触觉震动反馈；
-  4. 补全 v1 (JAR) 签名与 Release 发布变体，彻底解决解析安装包错误与测试版拦截问题。" \
+          --notes-file RELEASE_NOTES.md \
           --latest
+
